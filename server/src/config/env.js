@@ -1,5 +1,15 @@
 import "dotenv/config";
 
+const getRequiredValue = (name) => {
+  const value = process.env[name]?.trim();
+
+  if (!value) {
+    throw new Error(`${name} is required.`);
+  }
+
+  return value;
+};
+
 const parsePort = (value) => {
   const port = Number(value);
 
@@ -19,8 +29,30 @@ if (!allowedEnvironments.includes(nodeEnv)) {
   );
 }
 
+const mongoUri =
+  process.env.MONGODB_URI?.trim() ??
+  (nodeEnv === "development"
+    ? "mongodb://127.0.0.1:27017/forgenet"
+    : undefined);
+
+if (!mongoUri) {
+  throw new Error(
+    "MONGODB_URI is required. Set it in .env for production or define it locally."
+  );
+}
+
+if (
+  !mongoUri.startsWith("mongodb://") &&
+  !mongoUri.startsWith("mongodb+srv://")
+) {
+  throw new Error(
+    "MONGODB_URI must start with mongodb:// or mongodb+srv://."
+  );
+}
+
 export const env = Object.freeze({
   port: parsePort(process.env.PORT ?? "5000"),
   nodeEnv,
   clientUrl: process.env.CLIENT_URL ?? "http://localhost:5173",
+  mongoUri,
 });
