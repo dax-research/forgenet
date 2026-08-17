@@ -1,23 +1,54 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
 const projectSchema = new mongoose.Schema(
     {
-        name : {
-            type : String,
-            required : true,
+        owner: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true
         },
 
-        TechStack : {
-            type : [String],
-            default : []
+        title: {
+            type: String,
+            required: true,
+            trim: true
         },
 
-        githubUrl : {
-            type : String,
-            default : ""
+        description: {
+            type: String,
+            required: true,
+            trim: true
+        },
+
+        images: {
+            type: [String],
+            default: []
+        },
+
+        technologies: {
+            type: [String],
+            default: []
+        },
+
+        githubUrl: {
+            type: String,
+            trim: true
+        },
+
+        liveUrl: {
+            type: String,
+            trim: true
+        },
+
+        status: {
+            type: String,
+            enum: ["completed", "in-progress", "planned"],
+            default: "in-progress"
         }
-
-        
+    },
+    {
+        timestamps: true
     }
+);
 
-)
+export default mongoose.model("Project", projectSchema);
