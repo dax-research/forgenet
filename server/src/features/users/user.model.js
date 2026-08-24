@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+
 const userSchema = new mongoose.Schema(
     {
         name : {
@@ -18,6 +19,8 @@ const userSchema = new mongoose.Schema(
         password : {
             type : String,
             required : true,
+            minlength: 8,
+            select: false,
         },
 
         profileImage : {
@@ -63,11 +66,18 @@ const userSchema = new mongoose.Schema(
                 ref: "User"
             }
         ]
+        ,
+        savedPosts: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "Post"
+            }
+        ]
     },
 
     {
         timestamps: true
     }
-)
+);
 
 export default mongoose.model("User", userSchema);

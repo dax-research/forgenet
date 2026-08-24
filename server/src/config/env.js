@@ -54,5 +54,6 @@ export const env = Object.freeze({
   port: parsePort(process.env.PORT ?? "5000"),
   nodeEnv,
   clientUrl: process.env.CLIENT_URL ?? "http://localhost:5173",
+  jwtSecret: getRequiredValue("JWT_SECRET"),
   mongoUri,
 });

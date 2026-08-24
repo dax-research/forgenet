@@ -1,19 +1,22 @@
+import mongoose from "mongoose";
 import Comment from "./comment.model.js";
 
 // Create comment
 export const createComment = async (req, res) => {
     try {
-        const comment = await Comment.create(req.body);
+        const post = req.params.postId || req.body.post;
+        const { content, parentComment } = req.body;
+        const comment = await Comment.create({ author: req.user._id, post, content, parentComment });
 
-        res.status(201).json({
+        return res.status(201).json({
             success: true,
             message: "Comment created successfully",
-            comment
+            data: { comment }
         });
     } catch (error) {
-        res.status(500).json({
+        return res.status(error.name === "ValidationError" ? 400 : 500).json({
             success: false,
-            message: error.message
+            message: error.name === "ValidationError" ? error.message : "Internal server error"
         });
     }
 };
@@ -22,18 +25,22 @@ export const createComment = async (req, res) => {
 // Get comments of a post
 export const getCommentsByPost = async (req, res) => {
     try {
+        if (!mongoose.isValidObjectId(req.params.postId)) {
+            return res.status(400).json({ success: false, message: "Invalid post ID" });
+        }
+
         const comments = await Comment.find({
             post: req.params.postId
         })
             .populate("author", "name profileImage")
             .sort({ createdAt: -1 });
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
-            comments
+            data: { comments }
         });
     } catch (error) {
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: error.message
         });
@@ -44,11 +51,9 @@ export const getCommentsByPost = async (req, res) => {
 // Update comment
 export const updateComment = async (req, res) => {
     try {
-        const comment = await Comment.findByIdAndUpdate(
-            req.params.id,
-            {
-                content: req.body.content
-            },
+        const comment = await Comment.findOneAndUpdate(
+            { _id: req.params.id, author: req.user._id },
+            { content: req.body.content },
             {
                 new: true,
                 runValidators: true
@@ -62,15 +67,15 @@ export const updateComment = async (req, res) => {
             });
         }
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             message: "Comment updated successfully",
-            comment
+            data: { comment }
         });
     } catch (error) {
-        res.status(500).json({
+        return res.status(error.name === "ValidationError" ? 400 : 500).json({
             success: false,
-            message: error.message
+            message: error.name === "ValidationError" ? error.message : "Internal server error"
         });
     }
 };
@@ -79,9 +84,7 @@ export const updateComment = async (req, res) => {
 // Delete comment
 export const deleteComment = async (req, res) => {
     try {
-        const comment = await Comment.findByIdAndDelete(
-            req.params.id
-        );
+        const comment = await Comment.findOneAndDelete({ _id: req.params.id, author: req.user._id });
 
         if (!comment) {
             return res.status(404).json({
@@ -90,7 +93,7 @@ export const deleteComment = async (req, res) => {
             });
         }
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             message: "Comment deleted successfully"
         });

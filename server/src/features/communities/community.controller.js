@@ -1,221 +1,109 @@
+import mongoose from "mongoose";
 import Community from "./community.model.js";
 
+const isOwner = (community, userId) => community.owner.toString() === userId.toString();
 
-// Create community
 export const createCommunity = async (req, res) => {
     try {
-        const { name, description, owner, image } = req.body;
-
-        const community = await Community.create({
-            name,
-            description,
-            owner,
-            admins: [owner],
-            members: [owner],
-            image
-        });
-
-        res.status(201).json({
-            success: true,
-            message: "Community created successfully",
-            community
-        });
+        const { name, description, image } = req.body;
+        const owner = req.user._id;
+        const community = await Community.create({ name, description, owner, admins: [owner], members: [owner], image });
+        return res.status(201).json({ success: true, message: "Community created successfully", data: { community } });
     } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
+        const status = error.code === 11000 ? 409 : error.name === "ValidationError" ? 400 : 500;
+        return res.status(status).json({ success: false, message: status === 500 ? "Internal server error" : error.message });
     }
 };
 
-
-// Get all communities
-export const getCommunities = async (req, res) => {
-    try {
-        const communities = await Community.find()
-            .populate("owner", "name profileImage")
-            .sort({ createdAt: -1 });
-
-        res.status(200).json({
-            success: true,
-            communities
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
+export const getCommunities = async (_req, res) => {
+    const communities = await Community.find().populate("owner", "name profileImage").sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, data: { communities } });
 };
 
-
-// Get single community
 export const getCommunity = async (req, res) => {
-    try {
-        const community = await Community.findById(req.params.id)
-            .populate("owner", "name profileImage")
-            .populate("admins", "name profileImage")
-            .populate("members", "name profileImage");
-
-        if (!community) {
-            return res.status(404).json({
-                success: false,
-                message: "Community not found"
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            community
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    if (!mongoose.isValidObjectId(req.params.id)) {
+        return res.status(400).json({ success: false, message: "Invalid community ID" });
     }
+    const community = await Community.findById(req.params.id)
+        .populate("owner", "name profileImage")
+        .populate("admins", "name profileImage")
+        .populate("members", "name profileImage");
+    if (!community) {
+        return res.status(404).json({ success: false, message: "Community not found" });
+    }
+    return res.status(200).json({ success: true, data: { community } });
 };
 
-
-// Update community
 export const updateCommunity = async (req, res) => {
-    try {
-        const community = await Community.findByIdAndUpdate(
-            req.params.id,
-            req.body,
-            {
-                new: true,
-                runValidators: true
-            }
-        );
-
-        if (!community) {
-            return res.status(404).json({
-                success: false,
-                message: "Community not found"
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            message: "Community updated successfully",
-            community
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    const { name, description, image } = req.body;
+    const community = await Community.findOneAndUpdate(
+        { _id: req.params.id, owner: req.user._id },
+        { name, description, image },
+        { new: true, runValidators: true }
+    );
+    if (!community) {
+        return res.status(404).json({ success: false, message: "Community not found or you are not the owner" });
     }
+    return res.status(200).json({ success: true, message: "Community updated successfully", data: { community } });
 };
 
-
-// Delete community
 export const deleteCommunity = async (req, res) => {
-    try {
-        const { userId } = req.body;
-
-        const community = await Community.findById(req.params.id);
-
-        if (!community) {
-            return res.status(404).json({
-                success: false,
-                message: "Community not found"
-            });
-        }
-
-        // Check whether the user is the owner
-        if (community.owner.toString() !== userId) {
-            return res.status(403).json({
-                success: false,
-                message: "Only the community owner can delete this community"
-            });
-        }
-
-        await Community.findByIdAndDelete(req.params.id);
-
-        res.status(200).json({
-            success: true,
-            message: "Community deleted successfully"
-        });
-
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    const community = await Community.findById(req.params.id);
+    if (!community) {
+        return res.status(404).json({ success: false, message: "Community not found" });
     }
+    if (!isOwner(community, req.user._id)) {
+        return res.status(403).json({ success: false, message: "Only the community owner can delete this community" });
+    }
+    await community.deleteOne();
+    return res.status(200).json({ success: true, message: "Community deleted successfully" });
 };
 
-
-// Join community
 export const joinCommunity = async (req, res) => {
-    try {
-        const { userId } = req.body;
-
-        const community = await Community.findById(req.params.id);
-
-        if (!community) {
-            return res.status(404).json({
-                success: false,
-                message: "Community not found"
-            });
-        }
-
-        if (community.members.includes(userId)) {
-            return res.status(400).json({
-                success: false,
-                message: "User is already a member"
-            });
-        }
-
-        community.members.push(userId);
-
-        await community.save();
-
-        res.status(200).json({
-            success: true,
-            message: "Joined community successfully",
-            community
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    const community = await Community.findById(req.params.id);
+    if (!community) {
+        return res.status(404).json({ success: false, message: "Community not found" });
     }
+    if (community.members.some((member) => member.toString() === req.user._id.toString())) {
+        return res.status(409).json({ success: false, message: "User is already a member" });
+    }
+    const updatedCommunity = await Community.findOneAndUpdate(
+        { _id: req.params.id, members: { $ne: req.user._id } },
+        { $addToSet: { members: req.user._id } },
+        { new: true }
+    );
+    if (!updatedCommunity) {
+        return res.status(409).json({ success: false, message: "User is already a member" });
+    }
+    return res.status(200).json({ success: true, message: "Joined community successfully", data: { community: updatedCommunity } });
 };
 
-
-// Leave community
 export const leaveCommunity = async (req, res) => {
-    try {
-        const { userId } = req.body;
-
-        const community = await Community.findById(req.params.id);
-
-        if (!community) {
-            return res.status(404).json({
-                success: false,
-                message: "Community not found"
-            });
-        }
-
-        community.members = community.members.filter(
-            member => member.toString() !== userId
-        );
-
-        await community.save();
-
-        res.status(200).json({
-            success: true,
-            message: "Left community successfully",
-            community
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    const community = await Community.findById(req.params.id);
+    if (!community) {
+        return res.status(404).json({ success: false, message: "Community not found" });
     }
+    if (isOwner(community, req.user._id)) {
+        return res.status(409).json({ success: false, message: "The owner cannot leave the community" });
+    }
+    const updatedCommunity = await Community.findOneAndUpdate(
+        { _id: req.params.id },
+        { $pull: { members: req.user._id, admins: req.user._id } },
+        { new: true }
+    );
+    return res.status(200).json({ success: true, message: "Left community successfully", data: { community: updatedCommunity } });
+};
+
+export const searchCommunities = async (req, res) => {
+    const query = req.query.q?.trim();
+    if (!query) return res.status(400).json({ success: false, message: "Search query is required" });
+    const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const communities = await Community.find({ $or: [{ name: pattern }, { description: pattern }] }).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, data: { communities } });
+};
+
+export const getMembers = async (req, res) => {
+    const community = await Community.findById(req.params.id).populate("members", "name profileImage skills");
+    if (!community) return res.status(404).json({ success: false, message: "Community not found" });
+    return res.status(200).json({ success: true, data: { members: community.members } });
 };

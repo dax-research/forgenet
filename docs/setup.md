@@ -63,6 +63,7 @@ Create `.env` by copying `.env.example`, then provide the required values:
 PORT=5000
 NODE_ENV=development
 CLIENT_URL=http://localhost:5173
+JWT_SECRET=replace-with-a-long-random-secret
 ```
 
 Start the backend development server:
