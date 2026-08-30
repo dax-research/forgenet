@@ -128,3 +128,12 @@ export const deleteProject = async (req, res) => {
         });
     }
 };
+
+export const searchProjects = async (req, res) => {
+    const query = req.query.q?.trim();
+    if (!query) return res.status(400).json({ success: false, message: "Search query is required" });
+    const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const projects = await Project.find({ $or: [{ title: pattern }, { description: pattern }, { technologies: pattern }] })
+        .populate("owner", "name profileImage").sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, data: { projects } });
+};

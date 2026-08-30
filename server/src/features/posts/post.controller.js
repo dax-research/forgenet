@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Post from "./post.model.js";
+import User from "../users/user.model.js";
 
 // Create a post
 export const createPost = async (req, res) => {
@@ -127,4 +128,25 @@ export const deletePost = async (req, res) => {
             message: error.message
         });
     }
+};
+
+export const searchPosts = async (req, res) => {
+    const query = req.query.q?.trim();
+    if (!query) return res.status(400).json({ success: false, message: "Search query is required" });
+    const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const posts = await Post.find({ $or: [{ content: pattern }, { tags: pattern }] })
+        .populate("author", "name profileImage").sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, data: { posts } });
+};
+
+export const savePost = async (req, res) => {
+    const post = await Post.findById(req.params.id);
+    if (!post) return res.status(404).json({ success: false, message: "Post not found" });
+    await User.findByIdAndUpdate(req.user._id, { $addToSet: { savedPosts: post._id } });
+    return res.status(200).json({ success: true, message: "Post saved successfully" });
+};
+
+export const unsavePost = async (req, res) => {
+    await User.findByIdAndUpdate(req.user._id, { $pull: { savedPosts: req.params.id } });
+    return res.status(200).json({ success: true, message: "Post removed from saved posts" });
 };
