@@ -1,5 +1,8 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import mongoSanitize from "express-mongo-sanitize";
 
 import { env } from "./config/env.js";
 
@@ -23,8 +26,25 @@ import { errorHandler } from "./middleware/error.middleware.js";
 
 const app = express();
 
-app.disable("x-powered-by");
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many auth requests, please try again later." },
+});
 
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many requests, please try again later." },
+});
+
+app.disable("x-powered-by");
+app.use(helmet());
+app.use(generalLimiter);
 app.use(
   cors({
     origin: env.clientUrl,
@@ -34,6 +54,8 @@ app.use(
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+app.use(mongoSanitize());
+app.use("/api/v1/auth", authLimiter);
 
 app.use("/api/v1/health", healthRouter);
 app.use("/api/v1/auth", authRouter);

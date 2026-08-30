@@ -334,6 +334,7 @@ JWT_SECRET=<long-random-secret>              # JWT signing key
 - Follow/Unfollow feature with validation and duplicate protection
 - Post likes and saves with duplicate protection
 - Pinned comments for post owners with auth/permission checks
+- Security hardening: Helmet headers, rate limiting, and Mongo input sanitization for HTTP abuse protection
 
 ### Not Yet Implemented
 - Real-time features (Socket.IO)
@@ -368,12 +369,13 @@ JWT_SECRET=<long-random-secret>              # JWT signing key
 1. ✓ Follow/Unfollow feature implemented with validation and duplicate protection
 2. ✓ Post likes and saves implemented with duplicate protection
 3. ✓ Pinned comments implemented for post owners
-4. Add pagination to list endpoints
-5. ✓ Search feature implemented across core entities
-6. ✓ Notifications feature implemented with auth and ownership checks
-7. ✓ Chat feature implemented with conversations and message CRUD
-8. Write API integration tests
-9. Document API with OpenAPI/Swagger
+4. ✓ Security hardening implemented with Helmet and rate limiting
+5. Add pagination to list endpoints
+6. ✓ Search feature implemented across core entities
+7. ✓ Notifications feature implemented with auth and ownership checks
+8. ✓ Chat feature implemented with conversations and message CRUD
+9. Write API integration tests
+10. Document API with OpenAPI/Swagger
 
 ### Future
 1. Implement notifications API
