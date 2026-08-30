@@ -7,9 +7,7 @@ import {
     deletePost,
     searchPosts,
     savePost,
-    unsavePost,
-    likePost,
-    unlikePost
+    unsavePost
 } from "./post.controller.js";
 import { authenticate } from "../../middleware/auth.middleware.js";
 
@@ -20,8 +18,6 @@ postRouter.get("/", getPosts);
 postRouter.get("/search", searchPosts);
 postRouter.post("/:id/save", authenticate, savePost);
 postRouter.delete("/:id/save", authenticate, unsavePost);
-postRouter.post("/:id/like", authenticate, likePost);
-postRouter.delete("/:id/like", authenticate, unlikePost);
 postRouter.get("/:id", getPost);
 postRouter.patch("/:id", authenticate, updatePost);
 postRouter.put("/:id", authenticate, updatePost);

@@ -3,9 +3,20 @@ import Community from "./community.model.js";
 
 const isMember = (community, userId) => community.members.some((id) => id.toString() === userId.toString());
 
+const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
+    const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
+    const rawSkip = Number.parseInt(req.query.skip ?? "0", 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, maxLimit) : defaultLimit;
+    const skip = Number.isFinite(rawSkip) && rawSkip >= 0 ? rawSkip : 0;
+    return { limit, skip };
+};
+
 export const getCommunityPosts = async (req, res) => {
-    const posts = await Post.find({ community: req.params.communityId }).populate("author", "name profileImage").sort({ createdAt: -1 });
-    return res.json({ success: true, data: { posts } });
+    const { limit, skip } = parsePagination(req);
+    const filter = { community: req.params.communityId };
+    const total = await Post.countDocuments(filter);
+    const posts = await Post.find(filter).populate("author", "name profileImage").sort({ createdAt: -1 }).skip(skip).limit(limit);
+    return res.json({ success: true, data: { posts, total, limit, skip } });
 };
 
 export const createCommunityPost = async (req, res) => {

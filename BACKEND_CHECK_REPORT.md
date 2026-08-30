@@ -349,6 +349,7 @@ JWT_SECRET=<long-random-secret>              # JWT signing key
 - Follow/Unfollow feature with validation and duplicate protection
 - Post likes and saves with duplicate protection
 - Pinned comments for post owners with auth/permission checks
+- Pagination on list endpoints with `limit`, `skip`, and `total` metadata
 - HTTP security hardening: Helmet headers, rate limiting, payload size limits, and request validation for abuse protection
 
 ### Not Yet Implemented

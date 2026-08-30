@@ -2,6 +2,14 @@ import mongoose from "mongoose";
 import Post from "./post.model.js";
 import User from "../users/user.model.js";
 
+const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
+    const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
+    const rawSkip = Number.parseInt(req.query.skip ?? "0", 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, maxLimit) : defaultLimit;
+    const skip = Number.isFinite(rawSkip) && rawSkip >= 0 ? rawSkip : 0;
+    return { limit, skip };
+};
+
 // Create a post
 export const createPost = async (req, res) => {
     try {
@@ -25,13 +33,17 @@ export const createPost = async (req, res) => {
 // Get all posts
 export const getPosts = async (req, res) => {
     try {
+        const { limit, skip } = parsePagination(req);
+        const total = await Post.countDocuments();
         const posts = await Post.find()
             .populate("author", "name profileImage")
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit);
 
         return res.status(200).json({
             success: true,
-            data: { posts }
+            data: { posts, total, limit, skip }
         });
     } catch (error) {
         return res.status(500).json({
@@ -140,108 +152,13 @@ export const searchPosts = async (req, res) => {
 };
 
 export const savePost = async (req, res) => {
-    try {
-        if (!mongoose.isValidObjectId(req.params.id)) {
-            return res.status(400).json({ success: false, message: "Invalid post ID" });
-        }
-
-        const post = await Post.findById(req.params.id);
-        if (!post) return res.status(404).json({ success: false, message: "Post not found" });
-
-        const user = await User.findOneAndUpdate(
-            { _id: req.user._id, savedPosts: { $ne: post._id } },
-            { $addToSet: { savedPosts: post._id } },
-            { new: true }
-        );
-
-        if (!user) {
-            return res.status(409).json({ success: false, message: "Post is already saved" });
-        }
-
-        return res.status(200).json({ success: true, message: "Post saved successfully", data: { user } });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Internal server error" });
-    }
+    const post = await Post.findById(req.params.id);
+    if (!post) return res.status(404).json({ success: false, message: "Post not found" });
+    await User.findByIdAndUpdate(req.user._id, { $addToSet: { savedPosts: post._id } });
+    return res.status(200).json({ success: true, message: "Post saved successfully" });
 };
 
 export const unsavePost = async (req, res) => {
-    try {
-        if (!mongoose.isValidObjectId(req.params.id)) {
-            return res.status(400).json({ success: false, message: "Invalid post ID" });
-        }
-
-        const user = await User.findOneAndUpdate(
-            { _id: req.user._id, savedPosts: req.params.id },
-            { $pull: { savedPosts: req.params.id } },
-            { new: true }
-        );
-
-        if (!user) {
-            return res.status(409).json({ success: false, message: "Post is not saved" });
-        }
-
-        return res.status(200).json({ success: true, message: "Post removed from saved posts", data: { user } });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Internal server error" });
-    }
-};
-
-export const likePost = async (req, res) => {
-    try {
-        if (!mongoose.isValidObjectId(req.params.id)) {
-            return res.status(400).json({ success: false, message: "Invalid post ID" });
-        }
-
-        const post = await Post.findOneAndUpdate(
-            { _id: req.params.id, likes: { $ne: req.user._id } },
-            { $addToSet: { likes: req.user._id } },
-            { new: true }
-        );
-
-        if (!post) {
-            const existing = await Post.findById(req.params.id);
-            if (!existing) {
-                return res.status(404).json({ success: false, message: "Post not found" });
-            }
-            return res.status(409).json({ success: false, message: "Post already liked" });
-        }
-
-        return res.status(200).json({
-            success: true,
-            message: "Post liked successfully",
-            data: { post }
-        });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Internal server error" });
-    }
-};
-
-export const unlikePost = async (req, res) => {
-    try {
-        if (!mongoose.isValidObjectId(req.params.id)) {
-            return res.status(400).json({ success: false, message: "Invalid post ID" });
-        }
-
-        const post = await Post.findOneAndUpdate(
-            { _id: req.params.id, likes: req.user._id },
-            { $pull: { likes: req.user._id } },
-            { new: true }
-        );
-
-        if (!post) {
-            const existing = await Post.findById(req.params.id);
-            if (!existing) {
-                return res.status(404).json({ success: false, message: "Post not found" });
-            }
-            return res.status(409).json({ success: false, message: "Post is not liked" });
-        }
-
-        return res.status(200).json({
-            success: true,
-            message: "Post unliked successfully",
-            data: { post }
-        });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Internal server error" });
-    }
+    await User.findByIdAndUpdate(req.user._id, { $pull: { savedPosts: req.params.id } });
+    return res.status(200).json({ success: true, message: "Post removed from saved posts" });
 };

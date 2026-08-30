@@ -1,6 +1,14 @@
 import mongoose from "mongoose";
 import Project from "./project.model.js";
 
+const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
+    const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
+    const rawSkip = Number.parseInt(req.query.skip ?? "0", 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, maxLimit) : defaultLimit;
+    const skip = Number.isFinite(rawSkip) && rawSkip >= 0 ? rawSkip : 0;
+    return { limit, skip };
+};
+
 // Create project
 export const createProject = async (req, res) => {
     try {
@@ -24,13 +32,17 @@ export const createProject = async (req, res) => {
 // Get all projects
 export const getProjects = async (req, res) => {
     try {
+        const { limit, skip } = parsePagination(req);
+        const total = await Project.countDocuments();
         const projects = await Project.find()
             .populate("owner", "name profileImage")
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit);
 
         return res.status(200).json({
             success: true,
-            data: { projects }
+            data: { projects, total, limit, skip }
         });
     } catch (error) {
         res.status(500).json({

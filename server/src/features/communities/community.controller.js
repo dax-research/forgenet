@@ -3,6 +3,14 @@ import Community from "./community.model.js";
 
 const isOwner = (community, userId) => community.owner.toString() === userId.toString();
 
+const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
+    const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
+    const rawSkip = Number.parseInt(req.query.skip ?? "0", 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, maxLimit) : defaultLimit;
+    const skip = Number.isFinite(rawSkip) && rawSkip >= 0 ? rawSkip : 0;
+    return { limit, skip };
+};
+
 export const createCommunity = async (req, res) => {
     try {
         const { name, description, image } = req.body;
@@ -15,9 +23,11 @@ export const createCommunity = async (req, res) => {
     }
 };
 
-export const getCommunities = async (_req, res) => {
-    const communities = await Community.find().populate("owner", "name profileImage").sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, data: { communities } });
+export const getCommunities = async (req, res) => {
+    const { limit, skip } = parsePagination(req);
+    const total = await Community.countDocuments();
+    const communities = await Community.find().populate("owner", "name profileImage").sort({ createdAt: -1 }).skip(skip).limit(limit);
+    return res.status(200).json({ success: true, data: { communities, total, limit, skip } });
 };
 
 export const getCommunity = async (req, res) => {

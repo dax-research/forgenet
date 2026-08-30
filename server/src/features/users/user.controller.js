@@ -9,6 +9,14 @@ const publicUser = (user) => {
     return value;
 };
 
+const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
+    const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
+    const rawSkip = Number.parseInt(req.query.skip ?? "0", 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, maxLimit) : defaultLimit;
+    const skip = Number.isFinite(rawSkip) && rawSkip >= 0 ? rawSkip : 0;
+    return { limit, skip };
+};
+
 export const createUser = async (req, res) => {
     try {
         const { name, email, password, profileImage, bio, skills, githubUrl, portfolioUrl, isJobSeeking } = req.body;
@@ -43,9 +51,11 @@ export const createUser = async (req, res) => {
     }
 };
 
-export const getUsers = async (_req, res) => {
-    const users = await User.find().sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, data: { users } });
+export const getUsers = async (req, res) => {
+    const { limit, skip } = parsePagination(req);
+    const total = await User.countDocuments();
+    const users = await User.find().sort({ createdAt: -1 }).skip(skip).limit(limit);
+    return res.status(200).json({ success: true, data: { users, total, limit, skip } });
 };
 
 export const getUser = async (req, res) => {
@@ -88,107 +98,43 @@ export const searchUsers = async (req, res) => {
 
 const getRelationship = async (req, res, field) => {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid user ID" });
-    const user = await User.findById(req.params.id).populate(field, "name profileImage skills");
+    const { limit, skip } = parsePagination(req);
+    const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
-    return res.status(200).json({ success: true, data: { users: user[field] } });
+
+    const ids = user[field].map((id) => id.toString());
+    const total = ids.length;
+    const pageIds = ids.slice(skip, skip + limit);
+    const users = await User.find({ _id: { $in: pageIds } }).select("name profileImage skills").sort({ name: 1 });
+
+    return res.status(200).json({ success: true, data: { users, total, limit, skip } });
 };
 
 export const getFollowers = (req, res) => getRelationship(req, res, "followers");
 export const getFollowing = (req, res) => getRelationship(req, res, "following");
 
 export const followUser = async (req, res) => {
-    try {
-        if (!mongoose.isValidObjectId(req.params.id)) {
-            return res.status(400).json({ success: false, message: "Invalid user ID" });
-        }
-
-        if (req.params.id === req.user._id.toString()) {
-            return res.status(400).json({ success: false, message: "You cannot follow yourself" });
-        }
-
-        const target = await User.findById(req.params.id);
-        if (!target) {
-            return res.status(404).json({ success: false, message: "User not found" });
-        }
-
-        const alreadyFollowing = await User.findOne({
-            _id: req.user._id,
-            following: target._id
-        });
-
-        if (alreadyFollowing) {
-            return res.status(409).json({ success: false, message: "You are already following this user" });
-        }
-
-        const currentUser = await User.findOneAndUpdate(
-            { _id: req.user._id, following: { $ne: target._id } },
-            { $addToSet: { following: target._id } },
-            { new: true }
-        );
-
-        if (!currentUser) {
-            return res.status(409).json({ success: false, message: "You are already following this user" });
-        }
-
-        await User.findOneAndUpdate(
-            { _id: target._id, followers: { $ne: req.user._id } },
-            { $addToSet: { followers: req.user._id } },
-            { new: true }
-        );
-
-        return res.status(200).json({
-            success: true,
-            message: "User followed successfully",
-            data: { user: currentUser }
-        });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Internal server error" });
-    }
+    if (req.params.id === req.user._id.toString()) return res.status(400).json({ success: false, message: "You cannot follow yourself" });
+    const target = await User.findById(req.params.id);
+    if (!target) return res.status(404).json({ success: false, message: "User not found" });
+    await User.findByIdAndUpdate(req.user._id, { $addToSet: { following: target._id } });
+    await User.findByIdAndUpdate(target._id, { $addToSet: { followers: req.user._id } });
+    return res.status(200).json({ success: true, message: "User followed successfully" });
 };
 
 export const unfollowUser = async (req, res) => {
-    try {
-        if (!mongoose.isValidObjectId(req.params.id)) {
-            return res.status(400).json({ success: false, message: "Invalid user ID" });
-        }
-
-        if (req.params.id === req.user._id.toString()) {
-            return res.status(400).json({ success: false, message: "You cannot unfollow yourself" });
-        }
-
-        const target = await User.findById(req.params.id);
-        if (!target) {
-            return res.status(404).json({ success: false, message: "User not found" });
-        }
-
-        const user = await User.findOneAndUpdate(
-            { _id: req.user._id, following: target._id },
-            { $pull: { following: target._id } },
-            { new: true }
-        );
-
-        if (!user) {
-            return res.status(409).json({ success: false, message: "You are not following this user" });
-        }
-
-        await User.findOneAndUpdate(
-            { _id: target._id, followers: req.user._id },
-            { $pull: { followers: req.user._id } },
-            { new: true }
-        );
-
-        return res.status(200).json({
-            success: true,
-            message: "User unfollowed successfully",
-            data: { user }
-        });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Internal server error" });
-    }
+    await User.findByIdAndUpdate(req.user._id, { $pull: { following: req.params.id } });
+    await User.findByIdAndUpdate(req.params.id, { $pull: { followers: req.user._id } });
+    return res.status(200).json({ success: true, message: "User unfollowed successfully" });
 };
 
 export const getSavedPosts = async (req, res) => {
     if (req.params.id !== req.user._id.toString()) return res.status(403).json({ success: false, message: "You can only view your saved posts" });
-    const user = await User.findById(req.user._id).populate({ path: "savedPosts", populate: { path: "author", select: "name profileImage" } });
-    return res.status(200).json({ success: true, data: { posts: user.savedPosts } });
+    const { limit, skip } = parsePagination(req);
+    const user = await User.findById(req.user._id);
+    const ids = user.savedPosts.map((id) => id.toString());
+    const total = ids.length;
+    const pageIds = ids.slice(skip, skip + limit);
+    const posts = await Post.find({ _id: { $in: pageIds } }).populate("author", "name profileImage").sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, data: { posts, total, limit, skip } });
 };

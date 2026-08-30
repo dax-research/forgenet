@@ -5,9 +5,20 @@ import Message from "./message.model.js";
 const valid = (id) => mongoose.isValidObjectId(id);
 const member = (conversation, userId) => conversation.participants.some((id) => id.toString() === userId.toString());
 
+const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
+    const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
+    const rawSkip = Number.parseInt(req.query.skip ?? "0", 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, maxLimit) : defaultLimit;
+    const skip = Number.isFinite(rawSkip) && rawSkip >= 0 ? rawSkip : 0;
+    return { limit, skip };
+};
+
 export const getConversations = async (req, res) => {
-    const conversations = await Conversation.find({ participants: req.user._id }).populate("participants", "name profileImage").sort({ updatedAt: -1 });
-    return res.json({ success: true, data: { conversations } });
+    const { limit, skip } = parsePagination(req);
+    const filter = { participants: req.user._id };
+    const total = await Conversation.countDocuments(filter);
+    const conversations = await Conversation.find(filter).populate("participants", "name profileImage").sort({ updatedAt: -1 }).skip(skip).limit(limit);
+    return res.json({ success: true, data: { conversations, total, limit, skip } });
 };
 
 export const getConversation = async (req, res) => {
@@ -42,8 +53,11 @@ export const deleteConversation = async (req, res) => {
 export const getMessages = async (req, res) => {
     const conversation = await Conversation.findById(req.params.conversationId);
     if (!conversation || !member(conversation, req.user._id)) return res.status(404).json({ success: false, message: "Conversation not found" });
-    const messages = await Message.find({ conversation: conversation._id }).populate("sender", "name profileImage").sort({ createdAt: 1 });
-    return res.json({ success: true, data: { messages } });
+    const { limit, skip } = parsePagination(req, 20, 100);
+    const filter = { conversation: conversation._id };
+    const total = await Message.countDocuments(filter);
+    const messages = await Message.find(filter).populate("sender", "name profileImage").sort({ createdAt: 1 }).skip(skip).limit(limit);
+    return res.json({ success: true, data: { messages, total, limit, skip } });
 };
 
 export const createMessage = async (req, res) => {
