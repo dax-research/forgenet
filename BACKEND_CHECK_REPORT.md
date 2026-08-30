@@ -74,6 +74,8 @@ Test 10: Invalid Token Rejection                ✓ 400 Bad Request
 ### Input Validation ✓
 - Malformed ObjectIds return 400 (not 500)
 - Required fields validated on registration
+- Name, email, and password are sanitized and validated before user creation
+- Pagination query params reject invalid `limit`/`skip` values with 400 responses
 - Request fields whitelisted (no mass assignment attacks)
 - Login requires both email and password
 - Invalid credentials return 401

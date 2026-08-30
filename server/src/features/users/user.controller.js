@@ -9,26 +9,57 @@ const publicUser = (user) => {
     return value;
 };
 
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
 const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
-    const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
-    const rawSkip = Number.parseInt(req.query.skip ?? "0", 10);
-    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, maxLimit) : defaultLimit;
-    const skip = Number.isFinite(rawSkip) && rawSkip >= 0 ? rawSkip : 0;
-    return { limit, skip };
+    const rawLimit = req.query.limit;
+    const rawSkip = req.query.skip;
+
+    const validateNumber = (value, name, minimum, allowZero = false) => {
+        if (value === undefined) {
+            return { valid: true, value: minimum };
+        }
+
+        const parsed = Number(value);
+        if (!Number.isInteger(parsed) || parsed < minimum || (!allowZero && parsed === 0) || (name === "limit" && parsed > maxLimit)) {
+            return { valid: false, message: `${name} must be a whole number greater than or equal to ${minimum}${name === "limit" ? ` and not exceed ${maxLimit}` : ""}` };
+        }
+
+        return { valid: true, value: parsed };
+    };
+
+    const limitResult = validateNumber(rawLimit, "limit", 1, false);
+    if (!limitResult.valid) return { error: limitResult.message };
+
+    const skipResult = validateNumber(rawSkip, "skip", 0, true);
+    if (!skipResult.valid) return { error: skipResult.message };
+
+    return { limit: limitResult.value, skip: skipResult.value, error: null };
 };
 
 export const createUser = async (req, res) => {
     try {
         const { name, email, password, profileImage, bio, skills, githubUrl, portfolioUrl, isJobSeeking } = req.body;
+        const trimmedName = name?.trim();
+        const trimmedEmail = email?.trim().toLowerCase();
+        const trimmedPassword = password?.trim();
 
-        if (!name || !email || !password) {
-            return res.status(400).json({ success: false, message: "Name, email, and password are required" });
+        if (!trimmedName || trimmedName.length < 2) {
+            return res.status(400).json({ success: false, message: "Please provide a valid name with at least 2 characters" });
+        }
+
+        if (!trimmedEmail || !isValidEmail(trimmedEmail)) {
+            return res.status(400).json({ success: false, message: "Please provide a valid email address" });
+        }
+
+        if (!trimmedPassword || trimmedPassword.length < 8) {
+            return res.status(400).json({ success: false, message: "Password must be at least 8 characters long" });
         }
 
         const user = await User.create({
-            name,
-            email: email.trim().toLowerCase(),
-            password: await bcrypt.hash(password, 12),
+            name: trimmedName,
+            email: trimmedEmail,
+            password: await bcrypt.hash(trimmedPassword, 12),
             profileImage,
             bio,
             skills,
@@ -52,7 +83,10 @@ export const createUser = async (req, res) => {
 };
 
 export const getUsers = async (req, res) => {
-    const { limit, skip } = parsePagination(req);
+    const { limit, skip, error } = parsePagination(req);
+    if (error) {
+        return res.status(400).json({ success: false, message: error });
+    }
     const total = await User.countDocuments();
     const users = await User.find().sort({ createdAt: -1 }).skip(skip).limit(limit);
     return res.status(200).json({ success: true, data: { users, total, limit, skip } });
@@ -98,7 +132,10 @@ export const searchUsers = async (req, res) => {
 
 const getRelationship = async (req, res, field) => {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ success: false, message: "Invalid user ID" });
-    const { limit, skip } = parsePagination(req);
+    const { limit, skip, error } = parsePagination(req);
+    if (error) {
+        return res.status(400).json({ success: false, message: error });
+    }
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
@@ -130,7 +167,10 @@ export const unfollowUser = async (req, res) => {
 
 export const getSavedPosts = async (req, res) => {
     if (req.params.id !== req.user._id.toString()) return res.status(403).json({ success: false, message: "You can only view your saved posts" });
-    const { limit, skip } = parsePagination(req);
+    const { limit, skip, error } = parsePagination(req);
+    if (error) {
+        return res.status(400).json({ success: false, message: error });
+    }
     const user = await User.findById(req.user._id);
     const ids = user.savedPosts.map((id) => id.toString());
     const total = ids.length;
