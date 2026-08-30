@@ -24,6 +24,11 @@ const commentSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: "Comment",
             default: null
+        },
+
+        isPinned: {
+            type: Boolean,
+            default: false
         }
     },
     {

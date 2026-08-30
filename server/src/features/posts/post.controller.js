@@ -140,13 +140,108 @@ export const searchPosts = async (req, res) => {
 };
 
 export const savePost = async (req, res) => {
-    const post = await Post.findById(req.params.id);
-    if (!post) return res.status(404).json({ success: false, message: "Post not found" });
-    await User.findByIdAndUpdate(req.user._id, { $addToSet: { savedPosts: post._id } });
-    return res.status(200).json({ success: true, message: "Post saved successfully" });
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: "Invalid post ID" });
+        }
+
+        const post = await Post.findById(req.params.id);
+        if (!post) return res.status(404).json({ success: false, message: "Post not found" });
+
+        const user = await User.findOneAndUpdate(
+            { _id: req.user._id, savedPosts: { $ne: post._id } },
+            { $addToSet: { savedPosts: post._id } },
+            { new: true }
+        );
+
+        if (!user) {
+            return res.status(409).json({ success: false, message: "Post is already saved" });
+        }
+
+        return res.status(200).json({ success: true, message: "Post saved successfully", data: { user } });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
 };
 
 export const unsavePost = async (req, res) => {
-    await User.findByIdAndUpdate(req.user._id, { $pull: { savedPosts: req.params.id } });
-    return res.status(200).json({ success: true, message: "Post removed from saved posts" });
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: "Invalid post ID" });
+        }
+
+        const user = await User.findOneAndUpdate(
+            { _id: req.user._id, savedPosts: req.params.id },
+            { $pull: { savedPosts: req.params.id } },
+            { new: true }
+        );
+
+        if (!user) {
+            return res.status(409).json({ success: false, message: "Post is not saved" });
+        }
+
+        return res.status(200).json({ success: true, message: "Post removed from saved posts", data: { user } });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+export const likePost = async (req, res) => {
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: "Invalid post ID" });
+        }
+
+        const post = await Post.findOneAndUpdate(
+            { _id: req.params.id, likes: { $ne: req.user._id } },
+            { $addToSet: { likes: req.user._id } },
+            { new: true }
+        );
+
+        if (!post) {
+            const existing = await Post.findById(req.params.id);
+            if (!existing) {
+                return res.status(404).json({ success: false, message: "Post not found" });
+            }
+            return res.status(409).json({ success: false, message: "Post already liked" });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Post liked successfully",
+            data: { post }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+export const unlikePost = async (req, res) => {
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: "Invalid post ID" });
+        }
+
+        const post = await Post.findOneAndUpdate(
+            { _id: req.params.id, likes: req.user._id },
+            { $pull: { likes: req.user._id } },
+            { new: true }
+        );
+
+        if (!post) {
+            const existing = await Post.findById(req.params.id);
+            if (!existing) {
+                return res.status(404).json({ success: false, message: "Post not found" });
+            }
+            return res.status(409).json({ success: false, message: "Post is not liked" });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Post unliked successfully",
+            data: { post }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
 };

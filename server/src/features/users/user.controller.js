@@ -97,18 +97,94 @@ export const getFollowers = (req, res) => getRelationship(req, res, "followers")
 export const getFollowing = (req, res) => getRelationship(req, res, "following");
 
 export const followUser = async (req, res) => {
-    if (req.params.id === req.user._id.toString()) return res.status(400).json({ success: false, message: "You cannot follow yourself" });
-    const target = await User.findById(req.params.id);
-    if (!target) return res.status(404).json({ success: false, message: "User not found" });
-    await User.findByIdAndUpdate(req.user._id, { $addToSet: { following: target._id } });
-    await User.findByIdAndUpdate(target._id, { $addToSet: { followers: req.user._id } });
-    return res.status(200).json({ success: true, message: "User followed successfully" });
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: "Invalid user ID" });
+        }
+
+        if (req.params.id === req.user._id.toString()) {
+            return res.status(400).json({ success: false, message: "You cannot follow yourself" });
+        }
+
+        const target = await User.findById(req.params.id);
+        if (!target) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        const alreadyFollowing = await User.findOne({
+            _id: req.user._id,
+            following: target._id
+        });
+
+        if (alreadyFollowing) {
+            return res.status(409).json({ success: false, message: "You are already following this user" });
+        }
+
+        const currentUser = await User.findOneAndUpdate(
+            { _id: req.user._id, following: { $ne: target._id } },
+            { $addToSet: { following: target._id } },
+            { new: true }
+        );
+
+        if (!currentUser) {
+            return res.status(409).json({ success: false, message: "You are already following this user" });
+        }
+
+        await User.findOneAndUpdate(
+            { _id: target._id, followers: { $ne: req.user._id } },
+            { $addToSet: { followers: req.user._id } },
+            { new: true }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "User followed successfully",
+            data: { user: currentUser }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
 };
 
 export const unfollowUser = async (req, res) => {
-    await User.findByIdAndUpdate(req.user._id, { $pull: { following: req.params.id } });
-    await User.findByIdAndUpdate(req.params.id, { $pull: { followers: req.user._id } });
-    return res.status(200).json({ success: true, message: "User unfollowed successfully" });
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: "Invalid user ID" });
+        }
+
+        if (req.params.id === req.user._id.toString()) {
+            return res.status(400).json({ success: false, message: "You cannot unfollow yourself" });
+        }
+
+        const target = await User.findById(req.params.id);
+        if (!target) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        const user = await User.findOneAndUpdate(
+            { _id: req.user._id, following: target._id },
+            { $pull: { following: target._id } },
+            { new: true }
+        );
+
+        if (!user) {
+            return res.status(409).json({ success: false, message: "You are not following this user" });
+        }
+
+        await User.findOneAndUpdate(
+            { _id: target._id, followers: req.user._id },
+            { $pull: { followers: req.user._id } },
+            { new: true }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "User unfollowed successfully",
+            data: { user }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
 };
 
 export const getSavedPosts = async (req, res) => {

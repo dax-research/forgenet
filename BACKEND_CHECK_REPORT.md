@@ -331,11 +331,11 @@ JWT_SECRET=<long-random-secret>              # JWT signing key
 ### Implemented
 - Notifications feature with authenticated CRUD and ownership checks
 - Chat feature with conversations and message CRUD
+- Follow/Unfollow feature with validation and duplicate protection
+- Post likes and saves with duplicate protection
+- Pinned comments for post owners with auth/permission checks
 
 ### Not Yet Implemented
-- Follow/Unfollow (relationships modeled but not implemented)
-- Post likes/saves
-- Pinned comments
 - Real-time features (Socket.IO)
 - File uploads (Multer/Cloudinary)
 
@@ -365,14 +365,15 @@ JWT_SECRET=<long-random-secret>              # JWT signing key
 6. Add Helmet.js middleware
 
 ### Near Term
-1. Implement follow/unfollow with atomic operations
-2. Implement likes and saves
-3. Add pagination to list endpoints
-4. ✓ Search feature implemented across core entities
-5. ✓ Notifications feature implemented with auth and ownership checks
-6. ✓ Chat feature implemented with conversations and message CRUD
-7. Write API integration tests
-8. Document API with OpenAPI/Swagger
+1. ✓ Follow/Unfollow feature implemented with validation and duplicate protection
+2. ✓ Post likes and saves implemented with duplicate protection
+3. ✓ Pinned comments implemented for post owners
+4. Add pagination to list endpoints
+5. ✓ Search feature implemented across core entities
+6. ✓ Notifications feature implemented with auth and ownership checks
+7. ✓ Chat feature implemented with conversations and message CRUD
+8. Write API integration tests
+9. Document API with OpenAPI/Swagger
 
 ### Future
 1. Implement notifications API
