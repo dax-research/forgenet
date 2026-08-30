@@ -15,6 +15,7 @@ import communityPostRouter from "./features/communities/community-post.routes.js
 import chatRouter from "./features/chat/chat.routes.js";
 import messageRouter from "./features/chat/message.routes.js";
 import notificationRouter from "./features/notifications/notification.routes.js";
+import searchRouter from "./features/search/search.routes.js";
 
 import { notFound } from "./middleware/not-found.middleware.js";
 import { errorHandler } from "./middleware/error.middleware.js";
@@ -46,6 +47,7 @@ app.use("/api/v1/community-posts", communityPostRouter);
 app.use("/api/v1/conversations", chatRouter);
 app.use("/api/v1/messages", messageRouter);
 app.use("/api/v1/notifications", notificationRouter);
+app.use("/api/v1/search", searchRouter);
 
 app.use(notFound);
 app.use(errorHandler);
