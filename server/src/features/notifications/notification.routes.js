@@ -7,6 +7,6 @@ notificationRouter.use(authenticate);
 notificationRouter.get("/", getNotifications);
 notificationRouter.post("/", createNotification);
 notificationRouter.get("/:id", getNotification);
-notificationRouter.put("/:id", updateNotification);
+notificationRouter.patch("/:id", updateNotification);
 notificationRouter.delete("/:id", deleteNotification);
 export default notificationRouter;

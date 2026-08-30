@@ -328,9 +328,11 @@ JWT_SECRET=<long-random-secret>              # JWT signing key
 - Search feature across users, posts, projects, and communities
 - Case-insensitive text matching with pagination support
 
+### Implemented
+- Notifications feature with authenticated CRUD and ownership checks
+- Chat feature with conversations and message CRUD
+
 ### Not Yet Implemented
-- Notifications feature (model exists, no API)
-- Chat/Messaging (models exist, no API)
 - Follow/Unfollow (relationships modeled but not implemented)
 - Post likes/saves
 - Pinned comments
@@ -367,8 +369,10 @@ JWT_SECRET=<long-random-secret>              # JWT signing key
 2. Implement likes and saves
 3. Add pagination to list endpoints
 4. ✓ Search feature implemented across core entities
-5. Write API integration tests
-6. Document API with OpenAPI/Swagger
+5. ✓ Notifications feature implemented with auth and ownership checks
+6. ✓ Chat feature implemented with conversations and message CRUD
+7. Write API integration tests
+8. Document API with OpenAPI/Swagger
 
 ### Future
 1. Implement notifications API
