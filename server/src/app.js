@@ -2,7 +2,6 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import mongoSanitize from "express-mongo-sanitize";
 
 import { env } from "./config/env.js";
 
@@ -54,7 +53,6 @@ app.use(
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
-app.use(mongoSanitize());
 app.use("/api/v1/auth", authLimiter);
 
 app.use("/api/v1/health", healthRouter);

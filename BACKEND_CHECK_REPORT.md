@@ -32,6 +32,20 @@ Test 10: Invalid Token Rejection                ✓ 400 Bad Request
 
 ## Security Implementation Status
 
+### HTTP Hardening (Helmet) ✓
+- Security headers enabled via Helmet middleware
+- `X-Frame-Options: SAMEORIGIN` - Clickjacking protection
+- `X-Content-Type-Options: nosniff` - MIME-type sniffing prevention
+- `Strict-Transport-Security: max-age=31536000` - HTTPS enforcement
+- `X-XSS-Protection`, `Content-Security-Policy` - XSS protection
+- Server identity hidden (`x-powered-by` disabled)
+
+### Rate Limiting ✓
+- Global rate limit: 200 requests per 15 minutes per IP
+- Auth-specific limit: 20 requests per 15 minutes per IP
+- Protects against brute-force attacks and DoS
+- Standard rate-limit headers included in responses
+
 ### Authentication ✓
 - JWT-based authentication implemented
 - `POST /api/v1/auth/login` endpoint functional
@@ -63,6 +77,7 @@ Test 10: Invalid Token Rejection                ✓ 400 Bad Request
 - Request fields whitelisted (no mass assignment attacks)
 - Login requires both email and password
 - Invalid credentials return 401
+- Payload size limit: 1MB (application/json and urlencoded)
 
 ---
 
@@ -334,7 +349,7 @@ JWT_SECRET=<long-random-secret>              # JWT signing key
 - Follow/Unfollow feature with validation and duplicate protection
 - Post likes and saves with duplicate protection
 - Pinned comments for post owners with auth/permission checks
-- Security hardening: Helmet headers, rate limiting, and Mongo input sanitization for HTTP abuse protection
+- HTTP security hardening: Helmet headers, rate limiting, payload size limits, and request validation for abuse protection
 
 ### Not Yet Implemented
 - Real-time features (Socket.IO)
@@ -369,12 +384,12 @@ JWT_SECRET=<long-random-secret>              # JWT signing key
 1. ✓ Follow/Unfollow feature implemented with validation and duplicate protection
 2. ✓ Post likes and saves implemented with duplicate protection
 3. ✓ Pinned comments implemented for post owners
-4. ✓ Security hardening implemented with Helmet and rate limiting
+4. ✓ Security hardening implemented with Helmet, rate limiting, and payload size limits
 5. Add pagination to list endpoints
 6. ✓ Search feature implemented across core entities
 7. ✓ Notifications feature implemented with auth and ownership checks
 8. ✓ Chat feature implemented with conversations and message CRUD
-9. Write API integration tests
+9. Add API integration tests (jest/supertest)
 10. Document API with OpenAPI/Swagger
 
 ### Future
