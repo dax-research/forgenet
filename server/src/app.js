@@ -18,6 +18,7 @@ import chatRouter from "./features/chat/chat.routes.js";
 import messageRouter from "./features/chat/message.routes.js";
 import notificationRouter from "./features/notifications/notification.routes.js";
 import searchRouter from "./features/search/search.routes.js";
+import { openApiSpec } from "./config/openapi.js";
 
 import { notFound } from "./middleware/not-found.middleware.js";
 import { errorHandler } from "./middleware/error.middleware.js";
@@ -68,6 +69,10 @@ app.use("/api/v1/conversations", chatRouter);
 app.use("/api/v1/messages", messageRouter);
 app.use("/api/v1/notifications", notificationRouter);
 app.use("/api/v1/search", searchRouter);
+
+app.get("/api/docs.json", (_req, res) => {
+  res.json(openApiSpec);
+});
 
 app.use(notFound);
 app.use(errorHandler);
