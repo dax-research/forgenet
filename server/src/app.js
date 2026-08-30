@@ -8,13 +8,8 @@ import authRouter from "./features/auth/auth.routes.js";
 import userRouter from "./features/users/user.routes.js";
 import postRouter from "./features/posts/post.routes.js";
 import commentRouter from "./features/comments/comment.routes.js";  
-import nestedCommentRouter from "./features/comments/nested-comment.routes.js";
 import projectRouter from "./features/projects/project.routes.js";
 import communityRouter from "./features/communities/community.routes.js";
-import communityPostRouter from "./features/communities/community-post.routes.js";
-import chatRouter from "./features/chat/chat.routes.js";
-import messageRouter from "./features/chat/message.routes.js";
-import notificationRouter from "./features/notifications/notification.routes.js";
 
 import { notFound } from "./middleware/not-found.middleware.js";
 import { errorHandler } from "./middleware/error.middleware.js";
@@ -39,13 +34,8 @@ app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/posts", postRouter);
 app.use("/api/v1/comments", commentRouter);
-app.use("/api/v1/posts/:postId/comments", nestedCommentRouter);
 app.use("/api/v1/projects", projectRouter);
 app.use("/api/v1/communities", communityRouter);
-app.use("/api/v1/community-posts", communityPostRouter);
-app.use("/api/v1/conversations", chatRouter);
-app.use("/api/v1/messages", messageRouter);
-app.use("/api/v1/notifications", notificationRouter);
 
 app.use(notFound);
 app.use(errorHandler);

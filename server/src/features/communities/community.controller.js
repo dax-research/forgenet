@@ -93,17 +93,3 @@ export const leaveCommunity = async (req, res) => {
     );
     return res.status(200).json({ success: true, message: "Left community successfully", data: { community: updatedCommunity } });
 };
-
-export const searchCommunities = async (req, res) => {
-    const query = req.query.q?.trim();
-    if (!query) return res.status(400).json({ success: false, message: "Search query is required" });
-    const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-    const communities = await Community.find({ $or: [{ name: pattern }, { description: pattern }] }).sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, data: { communities } });
-};
-
-export const getMembers = async (req, res) => {
-    const community = await Community.findById(req.params.id).populate("members", "name profileImage skills");
-    if (!community) return res.status(404).json({ success: false, message: "Community not found" });
-    return res.status(200).json({ success: true, data: { members: community.members } });
-};

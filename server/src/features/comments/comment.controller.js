@@ -4,8 +4,7 @@ import Comment from "./comment.model.js";
 // Create comment
 export const createComment = async (req, res) => {
     try {
-        const post = req.params.postId || req.body.post;
-        const { content, parentComment } = req.body;
+        const { post, content, parentComment } = req.body;
         const comment = await Comment.create({ author: req.user._id, post, content, parentComment });
 
         return res.status(201).json({
