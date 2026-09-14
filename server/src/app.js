@@ -15,7 +15,7 @@ import projectRouter from "./features/projects/project.routes.js";
 import communityRouter from "./features/communities/community.routes.js";
 import communityPostRouter from "./features/communities/community-post.routes.js";
 import chatRouter from "./features/chat/chat.routes.js";
-import messageRouter from "./features/chat/message.routes.js";
+import messageRouter from "./features/messages/message.routes.js";
 import notificationRouter from "./features/notifications/notification.routes.js";
 import searchRouter from "./features/search/search.routes.js";
 import { openApiSpec } from "./config/openapi.js";

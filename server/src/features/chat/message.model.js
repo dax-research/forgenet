@@ -7,4 +7,7 @@ const messageSchema = new mongoose.Schema({
     readAt: { type: Date, default: null }
 }, { timestamps: true });
 
+// Index for fast lookup of messages by conversation
+messageSchema.index({ conversation: 1 });
+
 export default mongoose.model("Message", messageSchema);
