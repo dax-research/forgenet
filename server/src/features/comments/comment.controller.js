@@ -104,6 +104,9 @@ export const deleteComment = async (req, res) => {
             });
         }
 
+        // Delete all nested replies
+        await Comment.deleteMany({ parentComment: comment._id });
+
         return res.status(200).json({
             success: true,
             message: "Comment deleted successfully"

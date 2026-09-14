@@ -130,6 +130,11 @@ export const deletePost = async (req, res) => {
             });
         }
 
+        // Clean up associated comments and saved posts
+        const Comment = mongoose.model("Comment");
+        await Comment.deleteMany({ post: post._id });
+        await User.updateMany({ savedPosts: post._id }, { $pull: { savedPosts: post._id } });
+
         return res.status(200).json({
             success: true,
             message: "Post deleted successfully"

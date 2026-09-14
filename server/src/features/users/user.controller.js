@@ -160,6 +160,7 @@ export const followUser = async (req, res) => {
 };
 
 export const unfollowUser = async (req, res) => {
+    if (req.params.id === req.user._id.toString()) return res.status(400).json({ success: false, message: "You cannot unfollow yourself" });
     await User.findByIdAndUpdate(req.user._id, { $pull: { following: req.params.id } });
     await User.findByIdAndUpdate(req.params.id, { $pull: { followers: req.user._id } });
     return res.status(200).json({ success: true, message: "User unfollowed successfully" });
