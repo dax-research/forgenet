@@ -46,14 +46,15 @@ export const getCommunity = async (req, res) => {
 
 export const updateCommunity = async (req, res) => {
     const { name, description, image } = req.body;
-    const community = await Community.findOneAndUpdate(
-        { _id: req.params.id, owner: req.user._id },
-        { name, description, image },
-        { new: true, runValidators: true }
-    );
+    const community = await Community.findById(req.params.id);
     if (!community) {
-        return res.status(404).json({ success: false, message: "Community not found or you are not the owner" });
+        return res.status(404).json({ success: false, message: "Community not found" });
     }
+    if (!isOwner(community, req.user._id)) {
+        return res.status(403).json({ success: false, message: "You are not authorized to modify this community" });
+    }
+    Object.assign(community, { name, description, image });
+    await community.save();
     return res.status(200).json({ success: true, message: "Community updated successfully", data: { community } });
 };
 

@@ -62,14 +62,7 @@ export const getCommentsByPost = async (req, res) => {
 // Update comment
 export const updateComment = async (req, res) => {
     try {
-        const comment = await Comment.findOneAndUpdate(
-            { _id: req.params.id, author: req.user._id },
-            { content: req.body.content },
-            {
-                new: true,
-                runValidators: true
-            }
-        );
+        const comment = await Comment.findById(req.params.id);
 
         if (!comment) {
             return res.status(404).json({
@@ -77,6 +70,16 @@ export const updateComment = async (req, res) => {
                 message: "Comment not found"
             });
         }
+
+        if (comment.author.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to modify this comment"
+            });
+        }
+
+        comment.content = req.body.content;
+        await comment.save();
 
         return res.status(200).json({
             success: true,
@@ -95,7 +98,7 @@ export const updateComment = async (req, res) => {
 // Delete comment
 export const deleteComment = async (req, res) => {
     try {
-        const comment = await Comment.findOneAndDelete({ _id: req.params.id, author: req.user._id });
+        const comment = await Comment.findById(req.params.id);
 
         if (!comment) {
             return res.status(404).json({
@@ -103,6 +106,15 @@ export const deleteComment = async (req, res) => {
                 message: "Comment not found"
             });
         }
+
+        if (comment.author.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to modify this comment"
+            });
+        }
+
+        await comment.deleteOne();
 
         // Delete all nested replies
         await Comment.deleteMany({ parentComment: comment._id });

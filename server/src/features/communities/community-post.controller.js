@@ -28,13 +28,18 @@ export const createCommunityPost = async (req, res) => {
 };
 
 export const updateCommunityPost = async (req, res) => {
-    const post = await Post.findOneAndUpdate({ _id: req.params.id, author: req.user._id, community: { $ne: null } }, { content: req.body.content, images: req.body.images, codeBlocks: req.body.codeBlocks, tags: req.body.tags }, { new: true, runValidators: true });
+    const post = await Post.findOne({ _id: req.params.id, community: { $ne: null } });
     if (!post) return res.status(404).json({ success: false, message: "Community post not found" });
+    if (post.author.toString() !== req.user._id.toString()) return res.status(403).json({ success: false, message: "You are not authorized to modify this post" });
+    Object.assign(post, { content: req.body.content, images: req.body.images, codeBlocks: req.body.codeBlocks, tags: req.body.tags });
+    await post.save();
     return res.json({ success: true, data: { post } });
 };
 
 export const deleteCommunityPost = async (req, res) => {
-    const post = await Post.findOneAndDelete({ _id: req.params.id, author: req.user._id, community: { $ne: null } });
+    const post = await Post.findOne({ _id: req.params.id, community: { $ne: null } });
     if (!post) return res.status(404).json({ success: false, message: "Community post not found" });
+    if (post.author.toString() !== req.user._id.toString()) return res.status(403).json({ success: false, message: "You are not authorized to modify this post" });
+    await post.deleteOne();
     return res.json({ success: true, message: "Community post deleted successfully" });
 };

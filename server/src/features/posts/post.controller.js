@@ -88,14 +88,7 @@ export const getPost = async (req, res) => {
 export const updatePost = async (req, res) => {
     try {
         const { content, images, codeBlocks, tags } = req.body;
-        const post = await Post.findOneAndUpdate(
-            { _id: req.params.id, author: req.user._id },
-            { content, images, codeBlocks, tags },
-            {
-                new: true,
-                runValidators: true
-            }
-        );
+        const post = await Post.findById(req.params.id);
 
         if (!post) {
             return res.status(404).json({
@@ -103,6 +96,16 @@ export const updatePost = async (req, res) => {
                 message: "Post not found"
             });
         }
+
+        if (post.author.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to modify this post"
+            });
+        }
+
+        Object.assign(post, { content, images, codeBlocks, tags });
+        await post.save();
 
         return res.status(200).json({
             success: true,
@@ -121,7 +124,7 @@ export const updatePost = async (req, res) => {
 // Delete a post
 export const deletePost = async (req, res) => {
     try {
-        const post = await Post.findOneAndDelete({ _id: req.params.id, author: req.user._id });
+        const post = await Post.findById(req.params.id);
 
         if (!post) {
             return res.status(404).json({
@@ -129,6 +132,15 @@ export const deletePost = async (req, res) => {
                 message: "Post not found"
             });
         }
+
+        if (post.author.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to modify this post"
+            });
+        }
+
+        await post.deleteOne();
 
         // Clean up associated comments and saved posts
         const Comment = mongoose.model("Comment");

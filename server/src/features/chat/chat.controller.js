@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import Conversation from "./conversation.model.js";
 import Message from "./message.model.js";
+import User from "../users/user.model.js";
 
 const valid = (id) => mongoose.isValidObjectId(id);
 const member = (conversation, userId) => conversation.participants.some((id) => id.toString() === userId.toString());
@@ -23,20 +24,45 @@ export const getConversations = async (req, res) => {
 
 export const getConversation = async (req, res) => {
     const conversation = await Conversation.findById(req.params.id).populate("participants", "name profileImage");
-    if (!conversation || !member(conversation, req.user._id)) return res.status(404).json({ success: false, message: "Conversation not found" });
+    if (!conversation) return res.status(404).json({ success: false, message: "Conversation not found" });
+    if (!member(conversation, req.user._id)) return res.status(403).json({ success: false, message: "Forbidden" });
     return res.json({ success: true, data: { conversation } });
 };
 
 export const createConversation = async (req, res) => {
-    const participants = [...new Set([req.user._id.toString(), ...(req.body.participants || [])])];
-    if (participants.length < 2 || participants.some((id) => !valid(id))) return res.status(400).json({ success: false, message: "At least one valid participant is required" });
-    const conversation = await Conversation.create({ participants, title: req.body.title });
-    return res.status(201).json({ success: true, data: { conversation } });
+    const participantId = req.body.participantId;
+    const userId = req.user._id.toString();
+
+    // Validate participantId presence
+    if (!participantId) return res.status(400).json({ success: false, message: "participantId is required" });
+    // Validate ObjectId format
+    if (!valid(participantId)) return res.status(400).json({ success: false, message: "Invalid participant ID" });
+    // Prevent self‑conversation
+    if (participantId === userId) return res.status(400).json({ success: false, message: "You cannot create a conversation with yourself" });
+
+    // Verify participant exists
+    const participant = await User.findById(participantId).select("_id name profileImage");
+    if (!participant) return res.status(404).json({ success: false, message: "Participant not found" });
+
+    // Look for existing conversation regardless of order, exactly two participants
+    const existing = await Conversation.findOne({
+        participants: { $all: [userId, participantId] },
+        $expr: { $eq: [{ $size: "$participants" }, 2] }
+    }).populate("participants", "name profileImage");
+
+    if (existing) {
+        return res.status(200).json({ success: true, message: "Conversation already exists", data: { conversation: existing } });
+    }
+
+    const conversation = await Conversation.create({ participants: [userId, participantId] });
+    await conversation.populate("participants", "name profileImage");
+    return res.status(201).json({ success: true, message: "Conversation created", data: { conversation } });
 };
 
 export const updateConversation = async (req, res) => {
     const conversation = await Conversation.findById(req.params.id);
-    if (!conversation || !member(conversation, req.user._id)) return res.status(404).json({ success: false, message: "Conversation not found" });
+    if (!conversation) return res.status(404).json({ success: false, message: "Conversation not found" });
+    if (!member(conversation, req.user._id)) return res.status(403).json({ success: false, message: "Forbidden" });
     conversation.title = req.body.title ?? conversation.title;
     await conversation.save();
     return res.json({ success: true, data: { conversation } });
@@ -44,7 +70,8 @@ export const updateConversation = async (req, res) => {
 
 export const deleteConversation = async (req, res) => {
     const conversation = await Conversation.findById(req.params.id);
-    if (!conversation || !member(conversation, req.user._id)) return res.status(404).json({ success: false, message: "Conversation not found" });
+    if (!conversation) return res.status(404).json({ success: false, message: "Conversation not found" });
+    if (!member(conversation, req.user._id)) return res.status(403).json({ success: false, message: "Forbidden" });
     await Message.deleteMany({ conversation: conversation._id });
     await conversation.deleteOne();
     return res.json({ success: true, message: "Conversation deleted successfully" });

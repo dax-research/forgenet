@@ -107,6 +107,10 @@ export const getUser = async (req, res) => {
 };
 
 export const updateUser = async (req, res) => {
+    if (req.params.id && req.params.id !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "You are not authorized to modify this user" });
+    }
+
     const { name, profileImage, bio, skills, githubUrl, portfolioUrl, isJobSeeking } = req.body;
     const user = await User.findByIdAndUpdate(
         req.user._id,
@@ -118,6 +122,10 @@ export const updateUser = async (req, res) => {
 };
 
 export const deleteUser = async (req, res) => {
+    if (req.params.id && req.params.id !== req.user._id.toString()) {
+        return res.status(403).json({ success: false, message: "You are not authorized to delete this user" });
+    }
+
     await User.findByIdAndDelete(req.user._id);
     return res.status(200).json({ success: true, message: "User deleted successfully" });
 };

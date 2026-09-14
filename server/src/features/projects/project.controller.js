@@ -87,14 +87,7 @@ export const getProject = async (req, res) => {
 export const updateProject = async (req, res) => {
     try {
         const { title, description, images, technologies, githubUrl, liveUrl, status } = req.body;
-        const project = await Project.findOneAndUpdate(
-            { _id: req.params.id, owner: req.user._id },
-            { title, description, images, technologies, githubUrl, liveUrl, status },
-            {
-                new: true,
-                runValidators: true
-            }
-        );
+        const project = await Project.findById(req.params.id);
 
         if (!project) {
             return res.status(404).json({
@@ -102,6 +95,16 @@ export const updateProject = async (req, res) => {
                 message: "Project not found"
             });
         }
+
+        if (project.owner.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to modify this project"
+            });
+        }
+
+        Object.assign(project, { title, description, images, technologies, githubUrl, liveUrl, status });
+        await project.save();
 
         return res.status(200).json({
             success: true,
@@ -120,7 +123,7 @@ export const updateProject = async (req, res) => {
 // Delete project
 export const deleteProject = async (req, res) => {
     try {
-        const project = await Project.findOneAndDelete({ _id: req.params.id, owner: req.user._id });
+        const project = await Project.findById(req.params.id);
 
         if (!project) {
             return res.status(404).json({
@@ -128,6 +131,15 @@ export const deleteProject = async (req, res) => {
                 message: "Project not found"
             });
         }
+
+        if (project.owner.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to modify this project"
+            });
+        }
+
+        await project.deleteOne();
 
         res.status(200).json({
             success: true,
