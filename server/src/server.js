@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { attachSocketServer } from "./sockets/socket.server.js";
 
 import app from "./app.js";
 import {
@@ -8,6 +9,7 @@ import {
 import { env } from "./config/env.js";
 
 const httpServer = createServer(app);
+attachSocketServer(httpServer);
 
 const startServer = async () => {
   try {
