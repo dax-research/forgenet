@@ -17,7 +17,8 @@ export const attachSocketServer = (httpServer) => {
       credentials: true,
     },
   });
-
+  // In‑memory map of userId → Set of active socket IDs.
+  const userSockets = new Map(); // string => Set<string>
   // JWT authentication for socket connections
   io.use(async (socket, next) => {
     try {
