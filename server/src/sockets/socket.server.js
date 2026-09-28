@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
 import User from "../features/users/user.model.js";
 import Conversation from "../features/chat/conversation.model.js";
-import Message from "../features/chat/message.model.js";
+import Message from "../features/messages/message.model.js";
 
 /**
  * Attaches a Socket.IO server to an existing HTTP server.
