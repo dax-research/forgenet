@@ -26,6 +26,13 @@ export default function Chat() {
 
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const activeConversationRef = useRef(null);
+  const userIdRef = useRef(null);
+
+  const idsEqual = (a, b) => a != null && b != null && String(a) === String(b);
+
+  activeConversationRef.current = activeConversation;
+  userIdRef.current = user?._id;
 
   // Scroll to bottom of message list
   const scrollToBottom = () => {
@@ -107,12 +114,12 @@ export default function Chat() {
 
     // Check presence for other participant
     const otherParticipant = activeConversation.participants?.find(
-      (p) => (p._id || p) !== user?._id
+      (p) => !idsEqual(p._id || p, user?._id)
     );
     if (otherParticipant?._id) {
       socketService.getPresence(otherParticipant._id, (res) => {
         if (res?.success && res.data?.online) {
-          setOnlineUsers((prev) => new Set([...prev, otherParticipant._id]));
+          setOnlineUsers((prev) => new Set([...prev, String(otherParticipant._id)]));
         }
       });
     }
@@ -125,28 +132,25 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversation?._id, user?._id]);
 
-  // Setup real-time Socket.IO listeners
+  // Setup real-time Socket.IO listeners once; read latest chat state from refs
   useEffect(() => {
     const socket = socketService.getSocket();
     if (!socket) return;
 
-    // Incoming new message
     const handleNewMessage = (newMsg) => {
       if (!newMsg) return;
-      if (
-        activeConversation &&
-        (newMsg.conversation === activeConversation._id ||
-          newMsg.conversation?._id === activeConversation._id)
-      ) {
+      const incomingConvId = newMsg.conversation?._id || newMsg.conversation;
+      const active = activeConversationRef.current;
+
+      if (active && idsEqual(incomingConvId, active._id)) {
         setMessages((prev) => {
-          if (prev.some((m) => m._id === newMsg._id)) return prev;
+          if (prev.some((m) => idsEqual(m._id, newMsg._id))) return prev;
           return [...prev, newMsg];
         });
       }
 
-      // Also update conversations list order
       setConversations((prev) => {
-        const idx = prev.findIndex((c) => c._id === (newMsg.conversation?._id || newMsg.conversation));
+        const idx = prev.findIndex((c) => idsEqual(c._id, incomingConvId));
         if (idx !== -1) {
           const updated = [...prev];
           const [moved] = updated.splice(idx, 1);
@@ -156,42 +160,42 @@ export default function Chat() {
       });
     };
 
-    // Typing start
-    const handleUserTyping = ({ userId, conversationId }) => {
+    const handleUserTyping = ({ userId, conversationId } = {}) => {
+      const active = activeConversationRef.current;
       if (
-        activeConversation &&
-        activeConversation._id === conversationId &&
-        userId !== user?._id
+        active &&
+        idsEqual(active._id, conversationId) &&
+        !idsEqual(userId, userIdRef.current)
       ) {
-        setTypingUsers((prev) => new Set([...prev, userId]));
+        setTypingUsers((prev) => new Set([...prev, String(userId)]));
       }
     };
 
-    // Typing stop
-    const handleUserStoppedTyping = ({ userId, conversationId }) => {
+    const handleUserStoppedTyping = ({ userId, conversationId } = {}) => {
+      const active = activeConversationRef.current;
       if (
-        activeConversation &&
-        activeConversation._id === conversationId &&
-        userId !== user?._id
+        active &&
+        idsEqual(active._id, conversationId) &&
+        !idsEqual(userId, userIdRef.current)
       ) {
         setTypingUsers((prev) => {
           const next = new Set(prev);
-          next.delete(userId);
+          next.delete(String(userId));
           return next;
         });
       }
     };
 
-    // Presence online
-    const handleUserOnline = ({ userId }) => {
-      setOnlineUsers((prev) => new Set([...prev, userId]));
+    const handleUserOnline = ({ userId } = {}) => {
+      if (!userId) return;
+      setOnlineUsers((prev) => new Set([...prev, String(userId)]));
     };
 
-    // Presence offline
-    const handleUserOffline = ({ userId }) => {
+    const handleUserOffline = ({ userId } = {}) => {
+      if (!userId) return;
       setOnlineUsers((prev) => {
         const next = new Set(prev);
-        next.delete(userId);
+        next.delete(String(userId));
         return next;
       });
     };
@@ -209,7 +213,9 @@ export default function Chat() {
       socket.off("user_online", handleUserOnline);
       socket.off("user_offline", handleUserOffline);
     };
-  }, [activeConversation, user?._id]);
+    // Bind once; handlers read current conversation/user from refs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle typing input with debounce
   const handleInputChange = (e) => {
@@ -248,7 +254,7 @@ export default function Chat() {
     socketService.sendMessage(convId, content, async (ack) => {
       if (ack?.success && ack.data?.message) {
         setMessages((prev) => {
-          if (prev.some((m) => m._id === ack.data.message._id)) return prev;
+          if (prev.some((m) => idsEqual(m._id, ack.data.message._id))) return prev;
           return [...prev, ack.data.message];
         });
       } else {
@@ -268,12 +274,12 @@ export default function Chat() {
   // Get other participant in conversation
   const getOtherParticipant = (conv) => {
     if (!conv?.participants) return null;
-    return conv.participants.find((p) => (p._id || p) !== user?._id) || conv.participants[0];
+    return conv.participants.find((p) => !idsEqual(p._id || p, user?._id)) || conv.participants[0];
   };
 
   const currentOtherUser = getOtherParticipant(activeConversation);
-  const isOtherUserOnline = currentOtherUser?._id && onlineUsers.has(currentOtherUser._id);
-  const isOtherUserTyping = currentOtherUser?._id && typingUsers.has(currentOtherUser._id);
+  const isOtherUserOnline = currentOtherUser?._id && onlineUsers.has(String(currentOtherUser._id));
+  const isOtherUserTyping = currentOtherUser?._id && typingUsers.has(String(currentOtherUser._id));
 
   const filteredConversations = conversations.filter((c) => {
     if (!searchQuery.trim()) return true;
@@ -369,7 +375,7 @@ export default function Chat() {
               filteredConversations.map((conv) => {
                 const other = getOtherParticipant(conv);
                 const isActive = activeConversation?._id === conv._id;
-                const isOnline = other?._id && onlineUsers.has(other._id);
+                const isOnline = other?._id && onlineUsers.has(String(other._id));
 
                 return (
                   <div
@@ -493,7 +499,7 @@ export default function Chat() {
                 ) : (
                   messages.map((msg) => {
                     const senderId = msg.sender?._id || msg.sender;
-                    const isMine = senderId === user?._id;
+                    const isMine = idsEqual(senderId, user?._id);
 
                     return (
                       <div

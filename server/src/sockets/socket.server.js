@@ -1,6 +1,7 @@
 // socket.server.js
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 import { env } from "../config/env.js";
 import User from "../features/users/user.model.js";
 import Conversation from "../features/chat/conversation.model.js";
@@ -25,9 +26,32 @@ export const attachSocketServer = (httpServer) => {
   const isParticipant = (conversation, userId) =>
     conversation.participants.some((id) => id.toString() === userId.toString());
 
+  const toIdString = (value) => {
+    if (value == null) return "";
+    if (typeof value === "object" && value._id) return value._id.toString();
+    return value.toString();
+  };
+
+  const serializeMessage = (message) => {
+    const obj = typeof message.toJSON === "function" ? message.toJSON() : { ...message };
+    const sender = obj.sender && typeof obj.sender === "object"
+      ? {
+          _id: toIdString(obj.sender._id || obj.sender),
+          name: obj.sender.name,
+          profileImage: obj.sender.profileImage,
+        }
+      : toIdString(obj.sender);
+    return {
+      ...obj,
+      _id: toIdString(obj._id),
+      conversation: toIdString(obj.conversation),
+      sender,
+    };
+  };
+
   // Helper: validate conversation access and return conversation or null
   const validateConversationAccess = async (conversationId, userId) => {
-    if (!Conversation.isValidObjectId(conversationId)) {
+    if (!mongoose.isValidObjectId(conversationId)) {
       return { error: "Invalid conversationId", conversation: null };
     }
     const conversation = await Conversation.findById(conversationId);
@@ -88,6 +112,30 @@ export const attachSocketServer = (httpServer) => {
     });
   };
 
+  const emitToUserSockets = (userId, event, payload) => {
+    const sockets = userSockets.get(userId.toString());
+    if (!sockets) return;
+    for (const socketId of sockets) {
+      io.to(socketId).emit(event, payload);
+    }
+  };
+
+  const emitToConversationParticipants = (
+    conversation,
+    event,
+    payload,
+    excludeUserId
+  ) => {
+    const roomId = conversation._id.toString();
+    const exclude = excludeUserId ? excludeUserId.toString() : null;
+    io.to(roomId).emit(event, payload);
+    for (const participantId of conversation.participants) {
+      const participant = participantId.toString();
+      if (exclude && participant === exclude) continue;
+      emitToUserSockets(participant, event, payload);
+    }
+  };
+
   // JWT authentication for socket connections
   io.use(async (socket, next) => {
     try {
@@ -124,7 +172,7 @@ export const attachSocketServer = (httpServer) => {
         if (!userId) {
           return emitError(socket, ack, "userId is required");
         }
-        if (!Conversation.isValidObjectId(userId)) {
+        if (!mongoose.isValidObjectId(userId)) {
           return emitError(socket, ack, "Invalid userId");
         }
         const online = isUserOnline(userId);
@@ -148,9 +196,10 @@ export const attachSocketServer = (httpServer) => {
         if (error) {
           return emitError(socket, ack, error);
         }
-        socket.join(conversationId);
+        socket.join(conversation._id.toString());
         if (ack) return ack({ success: true, message: "joined" });
       } catch (e) {
+        console.error("[socket] join_conversation failed:", e.message);
         emitError(socket, ack, "Server error while joining");
       }
     });
@@ -162,12 +211,13 @@ export const attachSocketServer = (httpServer) => {
         if (!conversationId) {
           return emitError(socket, ack, "conversationId is required");
         }
-        if (!Conversation.isValidObjectId(conversationId)) {
+        if (!mongoose.isValidObjectId(conversationId)) {
           return emitError(socket, ack, "Invalid conversationId");
         }
-        socket.leave(conversationId);
+        socket.leave(conversationId.toString());
         if (ack) return ack({ success: true, message: "left" });
       } catch (e) {
+        console.error("[socket] leave_conversation failed:", e.message);
         emitError(socket, ack, "Server error while leaving");
       }
     });
@@ -200,10 +250,11 @@ export const attachSocketServer = (httpServer) => {
           updatedAt: new Date(),
         });
         const populated = await message.populate("sender", "name profileImage");
-        // Emit to all participants in the room after DB success
-        io.to(conversationId).emit("new_message", populated);
-        if (ack) return ack({ success: true, data: { message: populated } });
+        const payload = serializeMessage(populated);
+        emitToConversationParticipants(conversation, "new_message", payload);
+        if (ack) return ack({ success: true, data: { message: payload } });
       } catch (e) {
+        console.error("[socket] send_message failed:", e.message);
         emitError(socket, ack, "Server error while sending message");
       }
     });
@@ -222,15 +273,19 @@ export const attachSocketServer = (httpServer) => {
         if (error) {
           return emitError(socket, ack, error);
         }
-        // Broadcast to other participants in the conversation room (exclude sender)
-        socket
-          .to(conversationId)
-          .emit("user_typing", {
-            userId: socket.user._id.toString(),
-            conversationId,
-          });
+        const typingPayload = {
+          userId: socket.user._id.toString(),
+          conversationId: conversation._id.toString(),
+        };
+        emitToConversationParticipants(
+          conversation,
+          "user_typing",
+          typingPayload,
+          socket.user._id
+        );
         if (ack) return ack({ success: true });
       } catch (e) {
+        console.error("[socket] typing_start failed:", e.message);
         emitError(socket, ack, "Server error while processing typing start");
       }
     });
@@ -249,15 +304,19 @@ export const attachSocketServer = (httpServer) => {
         if (error) {
           return emitError(socket, ack, error);
         }
-        // Broadcast to other participants in the conversation room (exclude sender)
-        socket
-          .to(conversationId)
-          .emit("user_stopped_typing", {
-            userId: socket.user._id.toString(),
-            conversationId,
-          });
+        const typingPayload = {
+          userId: socket.user._id.toString(),
+          conversationId: conversation._id.toString(),
+        };
+        emitToConversationParticipants(
+          conversation,
+          "user_stopped_typing",
+          typingPayload,
+          socket.user._id
+        );
         if (ack) return ack({ success: true });
       } catch (e) {
+        console.error("[socket] typing_stop failed:", e.message);
         emitError(socket, ack, "Server error while processing typing stop");
       }
     });
