@@ -12,7 +12,9 @@ export const postsService = {
   },
 
   async createPost(postData) {
-    const res = await api.post("/posts", postData);
+    const isFormData = typeof FormData !== "undefined" && postData instanceof FormData;
+    const config = isFormData ? { headers: { "Content-Type": "multipart/form-data" } } : {};
+    const res = await api.post("/posts", postData, config);
     return res.data;
   },
 

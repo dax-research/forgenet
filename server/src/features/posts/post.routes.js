@@ -10,10 +10,11 @@ import {
     unsavePost
 } from "./post.controller.js";
 import { authenticate } from "../../middleware/auth.middleware.js";
+import { uploadPostImages } from "../../middleware/upload.middleware.js";
 
 var postRouter = Router();
 
-postRouter.post("/", authenticate, createPost);
+postRouter.post("/", authenticate, uploadPostImages, createPost);
 postRouter.get("/", getPosts);
 postRouter.get("/search", searchPosts);
 postRouter.post("/:id/save", authenticate, savePost);

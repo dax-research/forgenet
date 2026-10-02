@@ -242,12 +242,24 @@ export default function PostCard({
         </div>
       )}
 
-      {/* Images */}
-      {post.images && post.images.length > 0 && (
-        <div style={{ marginTop: "12px", borderRadius: "var(--radius-card)", overflow: "hidden", border: "1px solid var(--border)" }}>
-          {post.images.map((img, idx) => (
-            <img key={idx} src={img} alt="Post attachment" style={{ width: "100%", maxHeight: "400px", objectFit: "cover" }} />
-          ))}
+      {/* Images & Media */}
+      {((post.media && post.media.length > 0) || (post.images && post.images.length > 0)) && (
+        <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+          {/* Support both structured media and legacy/direct images */}
+          {(post.media && post.media.length > 0 ? post.media : post.images.map(img => ({ type: "image", url: img }))).map((item, idx) => {
+            const rawUrl = typeof item === "string" ? item : item.url;
+            const fullUrl = rawUrl?.startsWith("http") ? rawUrl : `${import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, "") : "http://localhost:5000"}${rawUrl?.startsWith("/") ? "" : "/"}${rawUrl}`;
+            return (
+              <div key={idx} style={{ borderRadius: "var(--radius-card)", overflow: "hidden", border: "1px solid var(--border)" }}>
+                <img
+                  src={fullUrl}
+                  alt={item.altText || "Post attachment"}
+                  style={{ width: "100%", maxHeight: "500px", objectFit: "contain", backgroundColor: "#000" }}
+                  loading="lazy"
+                />
+              </div>
+            );
+          })}
         </div>
       )}
 

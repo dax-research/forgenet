@@ -1,9 +1,14 @@
-import { useState } from "react";
-import { Code2, Image, Hash, Send } from "lucide-react";
+import { useState, useRef } from "react";
+import { Code2, Image as ImageIcon, Hash, Send, X, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import Avatar from "./Avatar";
 import Button from "./Button";
 import Card from "./Card";
+
+const MAX_POST_LENGTH = 3000;
+const MAX_IMAGE_COUNT = 20;
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
+const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 const LANGUAGES = [
   "javascript",
@@ -20,20 +25,89 @@ const LANGUAGES = [
 
 export default function PostComposer({ onPostCreated }) {
   const { user } = useAuth();
+  const fileInputRef = useRef(null);
+
   const [content, setContent] = useState("");
   const [showCode, setShowCode] = useState(false);
   const [codeLanguage, setCodeLanguage] = useState("javascript");
   const [code, setCode] = useState("");
-  const [showImage, setShowImage] = useState(false);
-  const [imageUrl, setImageUrl] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState([]); // Array of File objects
+  const [previews, setPreviews] = useState([]); // Array of { file, url, name, size }
   const [tagsInput, setTagsInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const charCount = content.length;
+  const isOverLimit = charCount > MAX_POST_LENGTH;
+
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    setError("");
+
+    // Check count limit
+    if (selectedFiles.length + files.length > MAX_IMAGE_COUNT) {
+      setError(`You can only upload up to ${MAX_IMAGE_COUNT} images per post.`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const validNewFiles = [];
+    const newPreviews = [];
+
+    for (const file of files) {
+      // Validate MIME type
+      if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+        setError(`"${file.name}" has an unsupported format. Allowed: JPG, PNG, WEBP.`);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+
+      // Validate size limit
+      if (file.size > MAX_IMAGE_SIZE) {
+        setError(`"${file.name}" exceeds the 5 MB file size limit.`);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+
+      validNewFiles.push(file);
+      newPreviews.push({
+        file,
+        url: URL.createObjectURL(file),
+        name: file.name,
+        size: (file.size / 1024 / 1024).toFixed(2),
+      });
+    }
+
+    setSelectedFiles((prev) => [...prev, ...validNewFiles]);
+    setPreviews((prev) => [...prev, ...newPreviews]);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveImage = (indexToRemove) => {
+    // Revoke object URL to avoid memory leak
+    const item = previews[indexToRemove];
+    if (item && item.url) {
+      URL.revokeObjectURL(item.url);
+    }
+
+    setSelectedFiles((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+    setPreviews((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!content.trim() && !code.trim()) {
-      setError("Please write something or provide a code block.");
+    if (!content.trim() && !code.trim() && selectedFiles.length === 0) {
+      setError("Please write something, share code, or attach an image.");
+      return;
+    }
+
+    if (isOverLimit) {
+      setError(`Post content cannot exceed ${MAX_POST_LENGTH} characters.`);
       return;
     }
 
@@ -53,21 +127,37 @@ export default function PostComposer({ onPostCreated }) {
             .filter(Boolean)
         : [];
 
-      const images = showImage && imageUrl.trim() ? [imageUrl.trim()] : [];
+      if (selectedFiles.length > 0) {
+        // Send as FormData for multipart upload
+        const formData = new FormData();
+        formData.append("content", content.trim());
+        formData.append("codeBlocks", JSON.stringify(codeBlocks));
+        formData.append("tags", JSON.stringify(tags));
 
-      await onPostCreated({
-        content: content.trim(),
-        codeBlocks,
-        tags,
-        images,
-      });
+        selectedFiles.forEach((file) => {
+          formData.append("images", file);
+        });
 
-      // Reset
+        await onPostCreated(formData);
+      } else {
+        // Text/code-only post as JSON
+        await onPostCreated({
+          content: content.trim(),
+          codeBlocks,
+          tags,
+          images: [],
+        });
+      }
+
+      // Cleanup previews
+      previews.forEach((p) => URL.revokeObjectURL(p.url));
+
+      // Reset state
       setContent("");
       setCode("");
       setShowCode(false);
-      setImageUrl("");
-      setShowImage(false);
+      setSelectedFiles([]);
+      setPreviews([]);
       setTagsInput("");
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Failed to create post.");
@@ -86,7 +176,7 @@ export default function PostComposer({ onPostCreated }) {
               placeholder="What are you building, learning, or shipping today?"
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              rows={2}
+              rows={3}
               className="textarea"
               style={{
                 border: "none",
@@ -94,10 +184,112 @@ export default function PostComposer({ onPostCreated }) {
                 fontSize: "14px",
                 boxShadow: "none",
                 background: "transparent",
+                width: "100%",
+                resize: "vertical",
               }}
             />
           </div>
         </div>
+
+        {/* Selected Image Previews */}
+        {previews.length > 0 && (
+          <div
+            style={{
+              marginTop: "12px",
+              padding: "10px",
+              backgroundColor: "var(--surface-secondary)",
+              borderRadius: "var(--radius-card)",
+              border: "1px solid var(--border)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "8px",
+              }}
+            >
+              <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)" }}>
+                Attached Images ({previews.length} / {MAX_IMAGE_COUNT})
+              </span>
+              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                Max 5 MB each (JPG, PNG, WEBP)
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))",
+                gap: "8px",
+              }}
+            >
+              {previews.map((item, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    position: "relative",
+                    borderRadius: "6px",
+                    overflow: "hidden",
+                    border: "1px solid var(--border)",
+                    aspectRatio: "1/1",
+                    backgroundColor: "#000",
+                  }}
+                >
+                  <img
+                    src={item.url}
+                    alt={item.name}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveImage(idx)}
+                    style={{
+                      position: "absolute",
+                      top: "4px",
+                      right: "4px",
+                      background: "rgba(0, 0, 0, 0.65)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "50%",
+                      width: "20px",
+                      height: "20px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                    }}
+                    title="Remove image"
+                  >
+                    <X size={12} />
+                  </button>
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: "0",
+                      left: "0",
+                      right: "0",
+                      padding: "2px 4px",
+                      background: "rgba(0, 0, 0, 0.6)",
+                      color: "#fff",
+                      fontSize: "9px",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {item.size} MB
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Code Editor Preview */}
         {showCode && (
@@ -155,27 +347,13 @@ export default function PostComposer({ onPostCreated }) {
           </div>
         )}
 
-        {/* Image URL Input */}
-        {showImage && (
-          <div style={{ marginTop: "10px" }}>
-            <input
-              type="url"
-              placeholder="Paste image URL (https://...)"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              className="input"
-              style={{ fontSize: "12px" }}
-            />
-          </div>
-        )}
-
         {/* Tags input */}
         <div style={{ marginTop: "10px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <Hash size={14} style={{ color: "var(--text-muted)" }} />
             <input
               type="text"
-              placeholder="Tags (e.g. react, nodejs, machine-learning)"
+              placeholder="Tags (e.g. react, nodejs, webdev)"
               value={tagsInput}
               onChange={(e) => setTagsInput(e.target.value)}
               style={{
@@ -190,12 +368,28 @@ export default function PostComposer({ onPostCreated }) {
           </div>
         </div>
 
+        {/* Error message */}
         {error && (
-          <p style={{ marginTop: "8px", fontSize: "12px", color: "var(--danger)" }}>
-            {error}
-          </p>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              marginTop: "8px",
+              padding: "6px 10px",
+              borderRadius: "var(--radius-input)",
+              backgroundColor: "var(--danger-bg)",
+              border: "1px solid var(--danger-border)",
+              color: "var(--danger)",
+              fontSize: "12px",
+            }}
+          >
+            <AlertCircle size={14} style={{ flexShrink: 0 }} />
+            <span>{error}</span>
+          </div>
         )}
 
+        {/* Footer toolbar */}
         <div
           style={{
             display: "flex",
@@ -206,8 +400,31 @@ export default function PostComposer({ onPostCreated }) {
             borderTop: "1px solid var(--border-subtle)",
           }}
         >
-          <div style={{ display: "flex", gap: "6px" }}>
+          <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+            {/* Hidden file input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              style={{ display: "none" }}
+            />
+
             <Button
+              type="button"
+              variant={previews.length > 0 ? "primary" : "ghost"}
+              size="sm"
+              icon={ImageIcon}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={selectedFiles.length >= MAX_IMAGE_COUNT}
+              title={`Attach images (up to ${MAX_IMAGE_COUNT}, max 5MB each)`}
+            >
+              Image {selectedFiles.length > 0 ? `(${selectedFiles.length})` : ""}
+            </Button>
+
+            <Button
+              type="button"
               variant={showCode ? "primary" : "ghost"}
               size="sm"
               icon={Code2}
@@ -215,26 +432,39 @@ export default function PostComposer({ onPostCreated }) {
             >
               Code
             </Button>
-            <Button
-              variant={showImage ? "primary" : "ghost"}
-              size="sm"
-              icon={Image}
-              onClick={() => setShowImage((prev) => !prev)}
-            >
-              Image
-            </Button>
           </div>
 
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            loading={loading}
-            icon={Send}
-            disabled={!content.trim() && !code.trim()}
-          >
-            Publish
-          </Button>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            {/* Character counter */}
+            <span
+              style={{
+                fontSize: "12px",
+                color: isOverLimit
+                  ? "var(--danger)"
+                  : charCount > 2500
+                  ? "var(--warning)"
+                  : "var(--text-muted)",
+                fontWeight: isOverLimit ? 600 : 400,
+              }}
+            >
+              {charCount} / {MAX_POST_LENGTH}
+            </span>
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              loading={loading}
+              icon={Send}
+              disabled={
+                loading ||
+                isOverLimit ||
+                (!content.trim() && !code.trim() && selectedFiles.length === 0)
+              }
+            >
+              Publish
+            </Button>
+          </div>
         </div>
       </form>
     </Card>

@@ -33,6 +33,27 @@ export default function ProjectCard({
 
   return (
     <Card hoverable className="project-card" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Project Banner / Thumbnail */}
+      {project.images && project.images.length > 0 && (
+        <div
+          style={{
+            marginBottom: "12px",
+            borderRadius: "var(--radius-btn)",
+            overflow: "hidden",
+            height: "140px",
+            backgroundColor: "var(--surface-secondary)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          <img
+            src={project.images[0]}
+            alt={project.title}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            loading="lazy"
+          />
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>

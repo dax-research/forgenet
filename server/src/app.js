@@ -20,6 +20,7 @@ import notificationRouter from "./features/notifications/notification.routes.js"
 import searchRouter from "./features/search/search.routes.js";
 import { openApiSpec } from "./config/openapi.js";
 
+import path from "node:path";
 import { notFound } from "./middleware/not-found.middleware.js";
 import { errorHandler } from "./middleware/error.middleware.js";
 
@@ -43,8 +44,9 @@ const generalLimiter = rateLimit({
 });
 
 app.disable("x-powered-by");
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(generalLimiter);
+app.use("/uploads", express.static(path.resolve(process.cwd(), "public/uploads")));
 app.use(
   cors({
     origin: env.clientUrl,
