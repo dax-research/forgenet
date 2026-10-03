@@ -57,4 +57,19 @@ export const postsService = {
     const res = await api.delete(`/comments/${commentId}`);
     return res.data;
   },
+
+  async likePost(id) {
+    const res = await api.post(`/posts/${id}/like`);
+    return res.data;
+  },
+
+  async unlikePost(id) {
+    const res = await api.delete(`/posts/${id}/like`);
+    return res.data;
+  },
+
+  async getTrendingTopics(limit = 10) {
+    const res = await api.get("/posts/trending", { params: { limit } });
+    return res.data;
+  },
 };

@@ -45,4 +45,9 @@ export const usersService = {
     const res = await api.get(`/users/${id}/saved-posts`, { params });
     return res.data;
   },
+
+  async getUserActivity(id) {
+    const res = await api.get(`/users/${id}/activity`);
+    return res.data;
+  },
 };

@@ -107,7 +107,9 @@ export default function Profile() {
     };
   }, [targetUserId, currentUser?._id, isOwnProfile]);
 
-  // Load user projects and posts
+  const [userActivity, setUserActivity] = useState([]);
+
+  // Load user projects, posts, and activity
   useEffect(() => {
     if (!targetUserId) return;
 
@@ -133,6 +135,15 @@ export default function Profile() {
               (p) => (p.author?._id || p.author) === targetUserId
             )
           );
+        }
+      })
+      .catch(() => {});
+
+    usersService
+      .getUserActivity(targetUserId)
+      .then((res) => {
+        if (res.success && res.data?.activity) {
+          setUserActivity(res.data.activity);
         }
       })
       .catch(() => {});
@@ -197,24 +208,39 @@ export default function Profile() {
 
   // Generate ForgeNet 52-week activity block visualization
   const activityBlocks = useMemo(() => {
-    // Generate pseudo-consistent seed for 52 weeks * 7 days = 364 days
     const totalDays = 52 * 7;
     const blocks = [];
-    const seed = (targetUserId || "user").charCodeAt(0) || 5;
+    
+    // Map activity data to date strings
+    const activityMap = {};
+    userActivity.forEach((item) => {
+      activityMap[item.date] = item.count;
+    });
 
-    for (let i = 0; i < totalDays; i++) {
-      // Deterministic pseudo-random distribution
-      const val = (Math.sin(i * 12.9898 + seed) * 43758.5453) % 1;
-      const absVal = Math.abs(val);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (let i = totalDays - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateString = `${year}-${month}-${day}`;
+      
+      const count = activityMap[dateString] || 0;
+
       let level = 0;
-      if (absVal > 0.82) level = 4;
-      else if (absVal > 0.65) level = 3;
-      else if (absVal > 0.45) level = 2;
-      else if (absVal > 0.25) level = 1;
+      if (count >= 8) level = 4;
+      else if (count >= 5) level = 3;
+      else if (count >= 3) level = 2;
+      else if (count >= 1) level = 1;
+
       blocks.push(level);
     }
     return blocks;
-  }, [targetUserId]);
+  }, [userActivity]);
 
   const profileTabs = [
     { id: "overview", label: "Overview", icon: Activity },
@@ -531,7 +557,13 @@ export default function Profile() {
             />
           ) : (
             userPosts.map((post) => (
-              <PostCard key={post._id} post={post} />
+              <PostCard 
+                key={post._id} 
+                post={post} 
+                onTagClick={(tag) => {
+                  window.location.href = `/?tag=${tag}`;
+                }}
+              />
             ))
           )}
         </div>

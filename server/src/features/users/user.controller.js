@@ -87,8 +87,19 @@ export const getUsers = async (req, res) => {
     if (error) {
         return res.status(400).json({ success: false, message: error });
     }
-    const total = await User.countDocuments();
-    const users = await User.find().sort({ createdAt: -1 }).skip(skip).limit(limit);
+    
+    let query = {};
+    if (req.user) {
+        const user = await User.findById(req.user._id);
+        if (user) {
+            query = {
+                _id: { $ne: user._id, $nin: user.following }
+            };
+        }
+    }
+
+    const total = await User.countDocuments(query);
+    const users = await User.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
     return res.status(200).json({ success: true, data: { users, total, limit, skip } });
 };
 
@@ -186,4 +197,60 @@ export const getSavedPosts = async (req, res) => {
     const pageIds = ids.slice(skip, skip + limit);
     const posts = await Post.find({ _id: { $in: pageIds } }).populate("author", "name profileImage").sort({ createdAt: -1 });
     return res.status(200).json({ success: true, data: { posts, total, limit, skip } });
+};
+
+export const getUserActivity = async (req, res) => {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+        return res.status(400).json({ success: false, message: "Invalid user ID" });
+    }
+
+    try {
+        const userId = new mongoose.Types.ObjectId(req.params.id);
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+        const getDailyCounts = async (Model, authorField = "author") => {
+            if (!Model) return [];
+            return await Model.aggregate([
+                {
+                    $match: {
+                        [authorField]: userId,
+                        createdAt: { $gte: oneYearAgo }
+                    }
+                },
+                {
+                    $group: {
+                        _id: {
+                            $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
+                        },
+                        count: { $sum: 1 }
+                    }
+                }
+            ]);
+        };
+
+        const [postCounts, projectCounts, commentCounts] = await Promise.all([
+            getDailyCounts(Post, "author"),
+            getDailyCounts(mongoose.models.Project, "owner"),
+            getDailyCounts(mongoose.models.Comment, "author")
+        ]);
+
+        const activityMap = {};
+        const addToMap = (data) => {
+            if (!data) return;
+            for (const item of data) {
+                activityMap[item._id] = (activityMap[item._id] || 0) + item.count;
+            }
+        };
+
+        addToMap(postCounts);
+        addToMap(projectCounts);
+        addToMap(commentCounts);
+
+        const activity = Object.entries(activityMap).map(([date, count]) => ({ date, count }));
+
+        return res.status(200).json({ success: true, data: { activity } });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
 };

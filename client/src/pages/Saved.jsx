@@ -63,6 +63,9 @@ export default function Saved() {
               key={post._id}
               post={post}
               onPostDeleted={handlePostDeleted}
+              onTagClick={(tag) => {
+                window.location.href = `/?tag=${tag}`;
+              }}
             />
           ))}
         </div>

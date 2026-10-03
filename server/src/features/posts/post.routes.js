@@ -7,18 +7,24 @@ import {
     deletePost,
     searchPosts,
     savePost,
-    unsavePost
+    unsavePost,
+    likePost,
+    unlikePost,
+    getTrendingTopics,
 } from "./post.controller.js";
-import { authenticate } from "../../middleware/auth.middleware.js";
+import { authenticate, optionalAuthenticate } from "../../middleware/auth.middleware.js";
 import { uploadPostImages } from "../../middleware/upload.middleware.js";
 
 var postRouter = Router();
 
 postRouter.post("/", authenticate, uploadPostImages, createPost);
-postRouter.get("/", getPosts);
+postRouter.get("/", optionalAuthenticate, getPosts);     // optionalAuthenticate so isLiked works for logged-in users
 postRouter.get("/search", searchPosts);
+postRouter.get("/trending", getTrendingTopics);          // before /:id to avoid capture
 postRouter.post("/:id/save", authenticate, savePost);
 postRouter.delete("/:id/save", authenticate, unsavePost);
+postRouter.post("/:id/like", authenticate, likePost);
+postRouter.delete("/:id/like", authenticate, unlikePost);
 postRouter.get("/:id", getPost);
 postRouter.patch("/:id", authenticate, updatePost);
 postRouter.put("/:id", authenticate, updatePost);

@@ -35,6 +35,25 @@ export const authenticate = async (req, res, next) => {
     }
 };
 
+export const optionalAuthenticate = async (req, res, next) => {
+    try {
+        const authorization = req.headers.authorization;
+        if (!authorization?.startsWith("Bearer ")) {
+            return next();
+        }
+
+        const token = authorization.slice(7);
+        const payload = jwt.verify(token, env.jwtSecret);
+        const user = await User.findById(payload.sub).select("-password");
+        if (user) {
+            req.user = user;
+        }
+        return next();
+    } catch {
+        return next();
+    }
+};
+
 export const requireOwner = (getOwnerId) => (req, res, next) => {
     const ownerId = getOwnerId(req);
 

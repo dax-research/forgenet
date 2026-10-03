@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   TrendingUp,
   FolderGit2,
@@ -21,22 +21,19 @@ import EmptyState from "../components/EmptyState";
 import Avatar from "../components/Avatar";
 import Button from "../components/Button";
 
-const TRENDING_TOPICS = [
-  { tag: "ai", posts: 142 },
-  { tag: "react", posts: 98 },
-  { tag: "typescript", posts: 84 },
-  { tag: "python", posts: 76 },
-  { tag: "docker", posts: 52 },
-  { tag: "rust", posts: 41 },
-];
-
 export default function Home() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const activeTag = searchParams.get("tag");
+
   const [activeTab, setActiveTab] = useState("for-you");
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [featuredProjects, setFeaturedProjects] = useState([]);
   const [suggestedUsers, setSuggestedUsers] = useState([]);
+  const [trendingTopics, setTrendingTopics] = useState([]);
+  const [trendingLoading, setTrendingLoading] = useState(true);
+  const [trendingError, setTrendingError] = useState(null);
 
   // Greeting based on time of day
   const getGreeting = () => {
@@ -49,7 +46,7 @@ export default function Home() {
   const loadFeed = async () => {
     try {
       setLoading(true);
-      const res = await postsService.getPosts({ limit: 30 });
+      const res = await postsService.getPosts({ limit: 30, tag: activeTag || undefined });
       if (res.success && res.data?.posts) {
         setPosts(res.data.posts);
       }
@@ -62,7 +59,9 @@ export default function Home() {
 
   useEffect(() => {
     loadFeed();
+  }, [activeTag]);
 
+  useEffect(() => {
     // Load featured projects and suggested users for right column
     projectsService
       .getProjects({ limit: 3 })
@@ -83,6 +82,20 @@ export default function Home() {
         }
       })
       .catch(() => {});
+
+    postsService
+      .getTrendingTopics(8)
+      .then((res) => {
+        if (res.success && res.data?.trending) {
+          setTrendingTopics(res.data.trending);
+        }
+      })
+      .catch((err) => {
+        setTrendingError(err?.message || "Failed to load trending topics");
+      })
+      .finally(() => {
+        setTrendingLoading(false);
+      });
   }, [user?._id]);
 
   const handlePostCreated = async (newPostData) => {
@@ -146,12 +159,25 @@ export default function Home() {
           {/* Post Composer */}
           <PostComposer onPostCreated={handlePostCreated} />
 
+          {activeTag && (
+            <div style={{ marginBottom: "16px", padding: "12px 16px", backgroundColor: "var(--surface-secondary)", borderRadius: "var(--radius-card)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "14px", fontWeight: 500 }}>
+                Showing posts tagged with <span style={{ color: "var(--accent)" }}>#{activeTag}</span>
+              </span>
+              <Link to="/" style={{ fontSize: "13px", color: "var(--text-muted)", textDecoration: "underline" }}>
+                Clear filter
+              </Link>
+            </div>
+          )}
+
           {/* Feed Tabs */}
-          <Tabs
-            tabs={feedTabs}
-            activeTab={activeTab}
-            onChange={(tabId) => setActiveTab(tabId)}
-          />
+          {!activeTag && (
+            <Tabs
+              tabs={feedTabs}
+              activeTab={activeTab}
+              onChange={(tabId) => setActiveTab(tabId)}
+            />
+          )}
 
           {/* Posts Feed */}
           {loading ? (
@@ -183,7 +209,7 @@ export default function Home() {
                 post={post}
                 onPostDeleted={handlePostDeleted}
                 onTagClick={(tag) => {
-                  window.location.href = `/explore?q=${tag}`;
+                  window.location.href = `/?tag=${tag}`;
                 }}
               />
             ))
@@ -207,28 +233,45 @@ export default function Home() {
               <span style={{ fontWeight: 600, fontSize: "13px" }}>Trending Topics</span>
             </div>
             <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              {TRENDING_TOPICS.map((topic) => (
-                <Link
-                  key={topic.tag}
-                  to={`/explore?q=${topic.tag}`}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    fontSize: "13px",
-                    color: "var(--text-secondary)",
-                    padding: "4px 0",
-                  }}
-                  className="card-hover"
-                >
-                  <span style={{ fontWeight: 500, color: "var(--accent)" }}>
-                    #{topic.tag}
-                  </span>
-                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                    {topic.posts} posts
-                  </span>
-                </Link>
-              ))}
+              {trendingLoading ? (
+                <>
+                  <Skeleton height={20} width="80%" />
+                  <Skeleton height={20} width="65%" />
+                  <Skeleton height={20} width="72%" />
+                  <Skeleton height={20} width="58%" />
+                </>
+              ) : trendingError ? (
+                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  Could not load trending topics.
+                </span>
+              ) : trendingTopics.length === 0 ? (
+                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  No trending topics yet.
+                </span>
+              ) : (
+                trendingTopics.map((topic) => (
+                  <Link
+                    key={topic.tag}
+                    to={`/?tag=${topic.tag}`}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      fontSize: "13px",
+                      color: "var(--text-secondary)",
+                      padding: "4px 0",
+                    }}
+                    className="card-hover"
+                  >
+                    <span style={{ fontWeight: 500, color: "var(--accent)" }}>
+                      #{topic.tag}
+                    </span>
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                      {topic.postCount} {topic.postCount === 1 ? "post" : "posts"}
+                    </span>
+                  </Link>
+                ))
+              )}
             </div>
           </Card>
 

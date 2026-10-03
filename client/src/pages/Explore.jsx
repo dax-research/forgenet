@@ -242,7 +242,13 @@ export default function Explore() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "720px" }}>
                 {posts.map((post) => (
-                  <PostCard key={post._id} post={post} />
+                  <PostCard 
+                    key={post._id} 
+                    post={post} 
+                    onTagClick={(tag) => {
+                      window.location.href = `/?tag=${tag}`;
+                    }}
+                  />
                 ))}
               </div>
             )

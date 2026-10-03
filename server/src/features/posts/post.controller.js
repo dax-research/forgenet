@@ -90,8 +90,15 @@ export const createPost = async (req, res) => {
 export const getPosts = async (req, res) => {
     try {
         const { limit, skip } = parsePagination(req);
-        const total = await Post.countDocuments();
-        const posts = await Post.find()
+        
+        let query = {};
+        if (req.query.tag) {
+            const tagPattern = new RegExp("^" + req.query.tag.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i");
+            query.tags = tagPattern;
+        }
+
+        const total = await Post.countDocuments(query);
+        const posts = await Post.find(query)
             .populate("author", "name profileImage")
             .sort({ createdAt: -1 })
             .skip(skip)
@@ -257,19 +264,152 @@ export const searchPosts = async (req, res) => {
 };
 
 export const savePost = async (req, res) => {
-    if (!mongoose.isValidObjectId(req.params.id)) {
-        return res.status(400).json({ success: false, message: "Invalid post ID" });
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: "Invalid post ID" });
+        }
+        const post = await Post.findById(req.params.id);
+        if (!post) return res.status(404).json({ success: false, message: "Post not found" });
+        await User.findByIdAndUpdate(req.user._id, { $addToSet: { savedPosts: post._id } });
+        return res.status(200).json({ success: true, message: "Post saved successfully" });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
     }
-    const post = await Post.findById(req.params.id);
-    if (!post) return res.status(404).json({ success: false, message: "Post not found" });
-    await User.findByIdAndUpdate(req.user._id, { $addToSet: { savedPosts: post._id } });
-    return res.status(200).json({ success: true, message: "Post saved successfully" });
 };
 
 export const unsavePost = async (req, res) => {
-    if (!mongoose.isValidObjectId(req.params.id)) {
-        return res.status(400).json({ success: false, message: "Invalid post ID" });
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: "Invalid post ID" });
+        }
+        await User.findByIdAndUpdate(req.user._id, { $pull: { savedPosts: req.params.id } });
+        return res.status(200).json({ success: true, message: "Post removed from saved posts" });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
     }
-    await User.findByIdAndUpdate(req.user._id, { $pull: { savedPosts: req.params.id } });
-    return res.status(200).json({ success: true, message: "Post removed from saved posts" });
+};
+
+export const likePost = async (req, res) => {
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: "Invalid post ID" });
+        }
+
+        const post = await Post.findById(req.params.id);
+        if (!post) {
+            return res.status(404).json({ success: false, message: "Post not found" });
+        }
+
+        const userId = req.user._id;
+        const alreadyLiked = post.likes.some((id) => id.toString() === userId.toString());
+
+        if (!alreadyLiked) {
+            post.likes.push(userId);
+            await post.save();
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Post liked successfully",
+            data: {
+                postId: post._id,
+                likeCount: post.likes.length,
+                isLiked: true,
+                likes: post.likes
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const unlikePost = async (req, res) => {
+    try {
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(400).json({ success: false, message: "Invalid post ID" });
+        }
+
+        const post = await Post.findById(req.params.id);
+        if (!post) {
+            return res.status(404).json({ success: false, message: "Post not found" });
+        }
+
+        const userId = req.user._id;
+        post.likes = post.likes.filter((id) => id.toString() !== userId.toString());
+        await post.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Post unliked successfully",
+            data: {
+                postId: post._id,
+                likeCount: post.likes.length,
+                isLiked: false,
+                likes: post.likes
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+export const getTrendingTopics = async (req, res) => {
+    try {
+        const rawLimit = Number.parseInt(req.query.limit ?? "10", 10);
+        const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 20) : 10;
+
+        const trending = await Post.aggregate([
+            { $match: { tags: { $exists: true, $type: "array", $ne: [] } } },
+            // Project deduplicated lowercase tags per post to prevent duplicate tags in a single post inflating the count
+            {
+                $project: {
+                    uniqueTags: {
+                        $setUnion: [
+                            {
+                                $map: {
+                                    input: "$tags",
+                                    as: "tag",
+                                    in: { $toLower: { $trim: { input: "$$tag" } } }
+                                }
+                            },
+                            []
+                        ]
+                    }
+                }
+            },
+            { $unwind: "$uniqueTags" },
+            { $match: { uniqueTags: { $ne: "" } } },
+            {
+                $group: {
+                    _id: "$uniqueTags",
+                    postCount: { $sum: 1 }
+                }
+            },
+            { $sort: { postCount: -1, _id: 1 } },
+            { $limit: limit },
+            {
+                $project: {
+                    _id: 0,
+                    tag: "$_id",
+                    postCount: 1
+                }
+            }
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            data: { trending }
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
 };

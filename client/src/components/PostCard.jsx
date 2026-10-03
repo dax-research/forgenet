@@ -17,6 +17,7 @@ import Avatar from "./Avatar";
 import Button from "./Button";
 import Card from "./Card";
 import Dropdown from "./Dropdown";
+import ImageGallery from "./ImageGallery";
 
 export default function PostCard({
   post,
@@ -60,16 +61,33 @@ export default function PostCard({
 
   const handleToggleLike = async () => {
     if (!user) return;
-    const nextState = !isLiked;
-    setIsLiked(nextState);
-    if (nextState) {
+
+    // Snapshot current state for rollback
+    const prevIsLiked = isLiked;
+    const prevLikes = likes;
+
+    // Optimistic update
+    const nextIsLiked = !isLiked;
+    setIsLiked(nextIsLiked);
+    if (nextIsLiked) {
       setLikes((prev) => [...prev, user._id]);
     } else {
       setLikes((prev) =>
         prev.filter((id) => (typeof id === "object" ? id._id : id) !== user._id)
       );
     }
-    // Optimistic - post likes update endpoint can be synced if desired
+
+    try {
+      if (nextIsLiked) {
+        await postsService.likePost(post._id);
+      } else {
+        await postsService.unlikePost(post._id);
+      }
+    } catch {
+      // Revert on failure
+      setIsLiked(prevIsLiked);
+      setLikes(prevLikes);
+    }
   };
 
   const handleToggleSave = async () => {
@@ -244,23 +262,9 @@ export default function PostCard({
 
       {/* Images & Media */}
       {((post.media && post.media.length > 0) || (post.images && post.images.length > 0)) && (
-        <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-          {/* Support both structured media and legacy/direct images */}
-          {(post.media && post.media.length > 0 ? post.media : post.images.map(img => ({ type: "image", url: img }))).map((item, idx) => {
-            const rawUrl = typeof item === "string" ? item : item.url;
-            const fullUrl = rawUrl?.startsWith("http") ? rawUrl : `${import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, "") : "http://localhost:5000"}${rawUrl?.startsWith("/") ? "" : "/"}${rawUrl}`;
-            return (
-              <div key={idx} style={{ borderRadius: "var(--radius-card)", overflow: "hidden", border: "1px solid var(--border)" }}>
-                <img
-                  src={fullUrl}
-                  alt={item.altText || "Post attachment"}
-                  style={{ width: "100%", maxHeight: "500px", objectFit: "contain", backgroundColor: "#000" }}
-                  loading="lazy"
-                />
-              </div>
-            );
-          })}
-        </div>
+        <ImageGallery 
+          mediaItems={post.media && post.media.length > 0 ? post.media : post.images.map(img => ({ type: "image", url: img }))}
+        />
       )}
 
       {/* Tags */}
