@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import User from "./user.model.js";
 import Post from "../posts/post.model.js";
 import { createNotification } from "../notifications/notification.service.js";
+import { uploadMediaFiles, deleteMediaFile } from "../../services/storage/index.js";
 
 const publicUser = (user) => {
     const value = user.toObject ? user.toObject() : { ...user };
@@ -123,14 +124,63 @@ export const updateUser = async (req, res) => {
         return res.status(403).json({ success: false, message: "You are not authorized to modify this user" });
     }
 
-    const { name, profileImage, bio, skills, githubUrl, portfolioUrl, isJobSeeking } = req.body;
-    const user = await User.findByIdAndUpdate(
-        req.user._id,
-        { name, profileImage, bio, skills, githubUrl, portfolioUrl, isJobSeeking },
-        { new: true, runValidators: true }
-    );
+    // An uploaded avatar arrives as req.file (multipart); otherwise the field
+    // may still be set as a plain URL.
+    let profileImage = req.body?.profileImage;
+
+    if (req.file) {
+        const uploaded = await uploadMediaFiles([req.file]);
+        const [media] = uploaded;
+        profileImage = `${req.protocol}://${req.get("host")}${media.url}`;
+    }
+
+    const { name, bio, skills, githubUrl, portfolioUrl, isJobSeeking } = req.body ?? {};
+
+    // Only overwrite fields that were actually supplied, so a partial update
+    // does not blank out unrelated profile data.
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (bio !== undefined) updates.bio = bio;
+    if (skills !== undefined) updates.skills = skills;
+    if (githubUrl !== undefined) updates.githubUrl = githubUrl;
+    if (portfolioUrl !== undefined) updates.portfolioUrl = portfolioUrl;
+    if (isJobSeeking !== undefined) updates.isJobSeeking = isJobSeeking;
+    if (profileImage !== undefined) updates.profileImage = profileImage;
+
+    const previousImage = req.user.profileImage;
+    const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true, runValidators: true });
+
+    // Remove the previously stored upload so replacing a photo does not leave
+    // orphaned files behind. Only local uploads are deleted; external URLs
+    // (e.g. seeded demo avatars) are left alone.
+    if (req.file && previousImage && previousImage !== profileImage) {
+        const filename = previousImage.split("/").pop();
+        if (filename && previousImage.includes("/uploads/")) {
+            await deleteMediaFile(filename);
+        }
+    }
 
     return res.status(200).json({ success: true, message: "User updated successfully", data: { user } });
+};
+
+// DELETE /api/v1/users/me/avatar
+// Removes the stored profile photo and falls back to the initials avatar.
+export const removeAvatar = async (req, res) => {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const previousImage = user.profileImage;
+    user.profileImage = "";
+    await user.save();
+
+    if (previousImage && previousImage.includes("/uploads/")) {
+        const filename = previousImage.split("/").pop();
+        if (filename) await deleteMediaFile(filename);
+    }
+
+    return res.status(200).json({ success: true, message: "Profile photo removed", data: { user } });
 };
 
 export const deleteUser = async (req, res) => {

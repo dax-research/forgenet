@@ -16,6 +16,30 @@ export const usersService = {
     return res.data;
   },
 
+  /**
+   * Updates the signed-in user's profile, optionally with a new photo.
+   * Passing a File switches the request to multipart/form-data.
+   */
+  async updateMyProfile(data, avatarFile) {
+    if (avatarFile instanceof File) {
+      const form = new FormData();
+      Object.entries(data).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        form.append(key, Array.isArray(value) ? JSON.stringify(value) : value);
+      });
+      form.append("avatar", avatarFile);
+      const res = await api.patch("/users/me", form);
+      return res.data;
+    }
+    const res = await api.patch("/users/me", data);
+    return res.data;
+  },
+
+  async removeAvatar() {
+    const res = await api.delete("/users/me/avatar");
+    return res.data;
+  },
+
   async searchUsers(q, params = {}) {
     const res = await api.get("/search/users", { params: { q, ...params } });
     return res.data;

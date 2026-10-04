@@ -103,9 +103,19 @@ export function AuthProvider({ children }) {
     return null;
   };
 
-  const updateProfile = async (data) => {
+  const updateProfile = async (data, avatarFile) => {
     if (!user?._id) return null;
-    const res = await usersService.updateUser(user._id, data);
+    const res = await usersService.updateMyProfile(data, avatarFile);
+    if (res.success && res.data?.user) {
+      setUser(res.data.user);
+      localStorage.setItem("user", JSON.stringify(res.data.user));
+      return res.data.user;
+    }
+    return null;
+  };
+
+  const removeProfilePhoto = async () => {
+    const res = await usersService.removeAvatar();
     if (res.success && res.data?.user) {
       setUser(res.data.user);
       localStorage.setItem("user", JSON.stringify(res.data.user));
@@ -124,6 +134,7 @@ export function AuthProvider({ children }) {
     logout,
     refreshUser,
     updateProfile,
+    removeProfilePhoto,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

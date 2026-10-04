@@ -1,13 +1,23 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { authService } from "../services/auth.service";
 import Card from "../components/Card";
 import Input from "../components/Input";
 import Button from "../components/Button";
-import { Check, AlertCircle } from "lucide-react";
+import Avatar from "../components/Avatar";
+import { Check, AlertCircle, Camera, Trash2, Upload } from "lucide-react";
+
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024; // 5 MB, matches the server limit
+const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 export default function Settings() {
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, removeProfilePhoto } = useAuth();
+  const fileInputRef = useRef(null);
+
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState(null);
+  const [avatarError, setAvatarError] = useState("");
+  const [removingAvatar, setRemovingAvatar] = useState(false);
 
   // Profile Form
   const [profileData, setProfileData] = useState({
@@ -45,13 +55,62 @@ export default function Settings() {
         isJobSeeking: profileData.isJobSeeking,
       };
 
-      await updateProfile(payload);
+      setAvatarError("");
+      await updateProfile(payload, avatarFile ?? undefined);
+      handleClearAvatarSelection();
       setProfileSuccess(true);
       setTimeout(() => setProfileSuccess(false), 3000);
     } catch (err) {
-      console.warn("Update profile error:", err.message);
+      setAvatarError(
+        err.response?.data?.message || "Could not save your profile."
+      );
     } finally {
       setProfileSaving(false);
+    }
+  };
+
+  const handleAvatarSelected = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setAvatarError("");
+    if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
+      setAvatarError("Unsupported file type. Please choose a JPG, PNG, or WEBP image.");
+      e.target.value = "";
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setAvatarError("Image is too large. Maximum size is 5 MB.");
+      e.target.value = "";
+      return;
+    }
+
+    // Show the chosen image immediately, before the upload completes.
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarPreview(URL.createObjectURL(file));
+    setAvatarFile(file);
+  };
+
+  const handleClearAvatarSelection = () => {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarPreview(null);
+    setAvatarFile(null);
+    setAvatarError("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleRemoveAvatar = async () => {
+    try {
+      setRemovingAvatar(true);
+      setAvatarError("");
+      await removeProfilePhoto();
+      handleClearAvatarSelection();
+    } catch (err) {
+      setAvatarError(
+        err.response?.data?.message || "Could not remove the profile photo."
+      );
+    } finally {
+      setRemovingAvatar(false);
     }
   };
 
@@ -125,7 +184,111 @@ export default function Settings() {
             </div>
           )}
 
+          {avatarError && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "8px 12px",
+                backgroundColor: "var(--danger-bg)",
+                border: "1px solid var(--danger-border)",
+                borderRadius: "var(--radius-btn)",
+                color: "var(--danger)",
+                fontSize: "13px",
+                marginBottom: "14px",
+              }}
+            >
+              <AlertCircle size={16} />
+              <span>{avatarError}</span>
+            </div>
+          )}
+
           <form onSubmit={handleSaveProfile} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {/* Profile Photo */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "16px",
+                paddingBottom: "14px",
+                borderBottom: "1px solid var(--border-subtle)",
+              }}
+            >
+              <div style={{ position: "relative" }}>
+                <Avatar
+                  src={avatarPreview || user?.profileImage}
+                  name={profileData.name || user?.name}
+                  size={72}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    right: "-2px",
+                    bottom: "-2px",
+                    width: "26px",
+                    height: "26px",
+                    borderRadius: "50%",
+                    backgroundColor: "var(--accent)",
+                    border: "2px solid var(--surface)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    pointerEvents: "none",
+                  }}
+                >
+                  <Camera size={13} style={{ color: "#fff" }} />
+                </div>
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
+                  Profile photo
+                </p>
+                <p style={{ fontSize: "11.5px", color: "var(--text-muted)", marginTop: "2px" }}>
+                  JPG, PNG or WEBP. Maximum 5 MB.
+                </p>
+
+                <div style={{ display: "flex", gap: "8px", marginTop: "8px", flexWrap: "wrap" }}>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handleAvatarSelected}
+                    style={{ display: "none" }}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    icon={Upload}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {avatarFile ? "Choose a different photo" : "Upload photo"}
+                  </Button>
+
+                  {avatarFile && (
+                    <Button type="button" variant="ghost" size="sm" onClick={handleClearAvatarSelection}>
+                      Cancel
+                    </Button>
+                  )}
+
+                  {!avatarFile && user?.profileImage && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      icon={Trash2}
+                      loading={removingAvatar}
+                      onClick={handleRemoveAvatar}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <Input
               label="Full Name"
               value={profileData.name}

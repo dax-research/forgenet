@@ -9,6 +9,7 @@ import { useAuth } from "../context/AuthContext";
 import Card from "./Card";
 import Badge from "./Badge";
 import Avatar from "./Avatar";
+import SafeImage from "./SafeImage";
 
 export default function ProjectCard({
   project,
@@ -45,7 +46,7 @@ export default function ProjectCard({
             border: "1px solid var(--border)",
           }}
         >
-          <img
+          <SafeImage
             src={project.images[0]}
             alt={project.title}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}

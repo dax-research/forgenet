@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import SafeImage from "./SafeImage";
 
 export default function ImageGallery({ mediaItems = [] }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -86,7 +87,7 @@ export default function ImageGallery({ mediaItems = [] }) {
                 maxHeight: totalItems === 1 ? "500px" : "100%",
               }}
             >
-              <img
+              <SafeImage
                 src={getFullUrl(item)}
                 alt={item.altText || "Post attachment"}
                 style={{
@@ -184,7 +185,7 @@ export default function ImageGallery({ mediaItems = [] }) {
           )}
 
           {/* Main Image */}
-          <img
+          <SafeImage
             src={getFullUrl(mediaItems[currentIndex])}
             alt="Full screen gallery"
             style={{

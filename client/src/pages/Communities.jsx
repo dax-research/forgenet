@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Users2, ArrowLeft, Send, AlertCircle, Check, UserCheck, Clock } from "lucide-react";
+import { Plus, Users2, ArrowLeft, Send, AlertCircle, Check, UserCheck, Clock, Pencil, Trash2 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useBadges } from "../context/BadgeContext";
 import { socketService } from "../services/socket.service";
@@ -60,6 +60,15 @@ export default function Communities() {
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState("");
 
+  // Edit / delete
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editData, setEditData] = useState({ name: "", description: "", image: "", joinMode: "OPEN" });
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
   const [createData, setCreateData] = useState({
     name: "",
     description: "",
@@ -84,9 +93,9 @@ export default function Communities() {
   const selectedCommunityRef = useRef(null);
   selectedCommunityRef.current = selectedCommunity;
 
-  const loadCommunities = async () => {
+  const loadCommunities = async ({ quiet = false } = {}) => {
     try {
-      setLoading(true);
+      if (!quiet) setLoading(true);
       const res = await communitiesService.getCommunities({ limit: 50 });
       if (res.success && res.data?.communities) {
         setCommunities(res.data.communities);
@@ -94,7 +103,7 @@ export default function Communities() {
     } catch (err) {
       console.warn("Load communities error:", err.message);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   };
 
@@ -369,6 +378,74 @@ export default function Communities() {
     }
   };
 
+  const handleOpenEdit = () => {
+    if (!selectedCommunity) return;
+    setEditData({
+      name: selectedCommunity.name || "",
+      description: selectedCommunity.description || "",
+      image: selectedCommunity.image || "",
+      joinMode: selectedCommunity.joinMode || "OPEN",
+    });
+    setEditError("");
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!selectedCommunity?._id) return;
+    if (!editData.name.trim() || !editData.description.trim()) {
+      setEditError("Name and description are required.");
+      return;
+    }
+
+    try {
+      setEditing(true);
+      setEditError("");
+      const res = await communitiesService.updateCommunity(selectedCommunity._id, {
+        name: editData.name.trim(),
+        description: editData.description.trim(),
+        image: editData.image.trim(),
+        joinMode: editData.joinMode,
+      });
+      if (res.success) {
+        await refreshCommunityDetail();
+        // Keep the directory listing consistent with the edit.
+        await loadCommunities({ quiet: true });
+        setIsEditModalOpen(false);
+      }
+    } catch (err) {
+      setEditError(
+        err.response?.data?.message || err.message || "Could not save your changes."
+      );
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  const handleDeleteCommunity = async () => {
+    if (!selectedCommunity?._id) return;
+    try {
+      setDeleting(true);
+      setDeleteError("");
+      await communitiesService.deleteCommunity(selectedCommunity._id);
+      // The community is gone: close every view and refresh the directory.
+      setIsDeleteModalOpen(false);
+      setSelectedCommunity(null);
+      setMembers(null);
+      setJoinRequests([]);
+      setCommunityPosts([]);
+      await loadCommunities({ quiet: true });
+    } catch (err) {
+      setDeleteError(
+        err.response?.data?.message ||
+          err.message ||
+          "Could not delete this community."
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const filteredCommunities = communities.filter((c) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
@@ -468,6 +545,31 @@ export default function Communities() {
                     <Badge variant="primary" style={{ fontSize: "11px" }}>
                       Owner
                     </Badge>
+
+                    <button
+                      type="button"
+                      onClick={handleOpenEdit}
+                      className="btn btn-ghost btn-sm"
+                      style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      title="Edit community details"
+                    >
+                      <Pencil size={14} />
+                      <span>Edit</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteError("");
+                        setIsDeleteModalOpen(true);
+                      }}
+                      className="btn btn-ghost btn-sm"
+                      style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "var(--danger)" }}
+                      title="Delete community"
+                    >
+                      <Trash2 size={14} />
+                      <span>Delete</span>
+                    </button>
                   </div>
                 ) : membership?.isMember ? (
                   <Button
@@ -881,6 +983,131 @@ export default function Communities() {
           </Modal>
         </div>
       )}
+
+      {/* Edit Community Modal */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => !editing && setIsEditModalOpen(false)}
+        title="Edit Community"
+        maxWidth="500px"
+      >
+        <form onSubmit={handleSaveEdit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {editError && (
+            <p style={{ color: "var(--danger)", fontSize: "12px" }}>{editError}</p>
+          )}
+
+          <Input
+            label="Community Name"
+            name="edit-name"
+            value={editData.name}
+            onChange={(e) => setEditData((prev) => ({ ...prev, name: e.target.value }))}
+            required
+            disabled={editing}
+          />
+
+          <Input
+            label="Description"
+            name="edit-description"
+            type="textarea"
+            rows={3}
+            value={editData.description}
+            onChange={(e) => setEditData((prev) => ({ ...prev, description: e.target.value }))}
+            required
+            disabled={editing}
+          />
+
+          <Input
+            label="Avatar / Logo Image URL"
+            name="edit-image"
+            type="url"
+            value={editData.image}
+            onChange={(e) => setEditData((prev) => ({ ...prev, image: e.target.value }))}
+            placeholder="https://... logo.png"
+            disabled={editing}
+          />
+
+          <div className="form-group">
+            <label className="form-label">Membership</label>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                type="button"
+                onClick={() => setEditData((prev) => ({ ...prev, joinMode: "OPEN" }))}
+                disabled={editing}
+                className={`btn ${editData.joinMode === "OPEN" ? "btn-primary" : "btn-secondary"} btn-sm`}
+                style={{ flex: 1 }}
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditData((prev) => ({ ...prev, joinMode: "APPROVAL_REQUIRED" }))}
+                disabled={editing}
+                className={`btn ${editData.joinMode === "APPROVAL_REQUIRED" ? "btn-primary" : "btn-secondary"} btn-sm`}
+                style={{ flex: 1 }}
+              >
+                Approval Required
+              </button>
+            </div>
+            <span className="form-helper">
+              {editData.joinMode === "OPEN"
+                ? "Anyone can join immediately."
+                : "New members must be approved by an admin."}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}>
+            <Button variant="secondary" onClick={() => setIsEditModalOpen(false)} disabled={editing}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" loading={editing}>
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Community Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => !deleting && setIsDeleteModalOpen(false)}
+        title="Delete Community"
+        maxWidth="440px"
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {deleteError && (
+            <p style={{ color: "var(--danger)", fontSize: "12px" }}>{deleteError}</p>
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              padding: "12px",
+              borderRadius: "var(--radius-btn)",
+              backgroundColor: "var(--danger-bg)",
+              border: "1px solid var(--danger-border)",
+              color: "var(--text-primary)",
+              fontSize: "13px",
+              lineHeight: "1.5",
+            }}
+          >
+            <AlertCircle size={16} style={{ color: "var(--danger)", flexShrink: 0, marginTop: "1px" }} />
+            <span>
+              This permanently deletes <strong>{selectedCommunity?.name}</strong> and all of its
+              posts. This cannot be undone.
+            </span>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+            <Button variant="secondary" onClick={() => setIsDeleteModalOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="danger" icon={Trash2} loading={deleting} onClick={handleDeleteCommunity}>
+              Delete Community
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
