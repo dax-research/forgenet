@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Plus, Users2, ArrowLeft, Send, AlertCircle, Check, UserCheck, Clock } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { useBadges } from "../context/BadgeContext";
+import { socketService } from "../services/socket.service";
 import { communitiesService } from "../services/communities.service";
 import CommunityCard from "../components/CommunityCard";
 import PostCard from "../components/PostCard";
@@ -50,6 +52,7 @@ function MemberRow({ person, role }) {
 
 export default function Communities() {
   const { user } = useAuth();
+  const { refreshBadges } = useBadges();
   const [communities, setCommunities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -76,6 +79,10 @@ export default function Communities() {
   const [showAllMembers, setShowAllMembers] = useState(false);
   const [joinRequests, setJoinRequests] = useState([]);
   const [resolvingRequest, setResolvingRequest] = useState("");
+  const [updatingMode, setUpdatingMode] = useState(false);
+
+  const selectedCommunityRef = useRef(null);
+  selectedCommunityRef.current = selectedCommunity;
 
   const loadCommunities = async () => {
     try {
@@ -94,6 +101,45 @@ export default function Communities() {
   useEffect(() => {
     loadCommunities();
   }, []);
+
+  // Loads the admin's pending-request queue. Called on open AND whenever a
+  // join-request notification arrives, so a request is never missed.
+  const loadJoinRequests = async (communityId) => {
+    try {
+      const reqs = await communitiesService.getJoinRequests(communityId);
+      if (reqs.success && reqs.data?.requests) setJoinRequests(reqs.data.requests);
+      else setJoinRequests([]);
+    } catch (err) {
+      console.warn("Load join requests error:", err.message);
+      setJoinRequests([]);
+    }
+  };
+
+  // Real-time: a new join request must show up without a manual refresh.
+  useEffect(() => {
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    const handleNotification = (notification) => {
+      if (notification?.type !== "community") return;
+      if (notification?.data?.action !== "join_request") return;
+
+      refreshBadges();
+      const communityId = notification?.data?.communityId;
+      // Update the visible detail view and the queue if the owner is looking
+      // at that community right now.
+      if (communityId && selectedCommunityRef.current?._id === communityId) {
+        loadJoinRequests(communityId);
+      } else if (communityId) {
+        setCommunities((prev) =>
+          prev.map((c) => (c._id === communityId ? { ...c, hasPendingJoinRequest: true } : c))
+        );
+      }
+    };
+
+    socket.on("notification:new", handleNotification);
+    return () => socket.off("notification:new", handleNotification);
+  }, [refreshBadges]);
 
   const handleSelectCommunity = async (comm) => {
     setSelectedCommunity(comm);
@@ -126,13 +172,10 @@ export default function Communities() {
         });
       }
 
-      // Admins get the pending-request queue.
-      const isAdmin = detail.data?.community?.membership?.isAdmin;
-      if (isAdmin) {
-        const reqs = await communitiesService.getJoinRequests(comm._id);
-        if (reqs.success && reqs.data?.requests) setJoinRequests(reqs.data.requests);
-      } else {
-        setJoinRequests([]);
+      // Only admins/admins-of-record get the pending-request queue.
+      setJoinRequests([]);
+      if (detail.data?.community?.membership?.isAdmin) {
+        await loadJoinRequests(comm._id);
       }
     } catch (err) {
       console.warn("Load community detail error:", err.message);
@@ -145,14 +188,17 @@ export default function Communities() {
 
   const refreshCommunityDetail = async () => {
     if (!selectedCommunity?._id) return;
-    const res = await communitiesService.getCommunity(selectedCommunity._id);
+    const communityId = selectedCommunity._id;
+    const res = await communitiesService.getCommunity(communityId);
     if (res.success && res.data?.community) {
       setSelectedCommunity(res.data.community);
-      const list = communities.map((c) =>
-        c._id === res.data.community._id ? res.data.community : c
+      // Keep the directory cards in sync with the detail view.
+      setCommunities((prev) =>
+        prev.map((c) => (c._id === communityId ? res.data.community : c))
       );
-      setCommunities(list);
+      return res.data.community;
     }
+    return null;
   };
 
   const handleMembershipAction = async () => {
@@ -181,6 +227,11 @@ export default function Communities() {
         });
       }
     } catch (err) {
+      // 409 = already a member / request already pending; the server knows the
+      // real state, so adopt it rather than leaving a stale button.
+      if (err.response?.status === 409) {
+        await refreshCommunityDetail();
+      }
       setPostError(err.response?.data?.message || err.message || "Membership change failed.");
     } finally {
       setMembershipAction(false);
@@ -197,6 +248,52 @@ export default function Communities() {
       }
     } catch (err) {
       console.warn("Load all members error:", err.message);
+    }
+  };
+
+  const handleCancelRequest = async () => {
+    if (!selectedCommunity?._id || !membership?.hasPendingRequest) return;
+    try {
+      setMembershipAction(true);
+      setPostError("");
+      await communitiesService.cancelJoinRequest(selectedCommunity._id, membership.pendingRequestId);
+      await refreshCommunityDetail();
+    } catch (err) {
+      setPostError(err.response?.data?.message || err.message || "Could not cancel the request.");
+    } finally {
+      setMembershipAction(false);
+    }
+  };
+
+  const handleJoinModeChange = async (nextMode) => {
+    if (!selectedCommunity?._id || nextMode === selectedCommunity.joinMode) return;
+    try {
+      setUpdatingMode(true);
+      setPostError("");
+      await communitiesService.updateCommunity(selectedCommunity._id, { joinMode: nextMode });
+      await refreshCommunityDetail();
+
+      // If the community became OPEN, pending requests were granted in the
+      // background — pull the (now empty) admin queue and fresh member list.
+      const isAdmin = membership?.isAdmin;
+      if (isAdmin) {
+        const reqs = await communitiesService.getJoinRequests(selectedCommunity._id);
+        if (reqs.success && reqs.data?.requests) setJoinRequests(reqs.data.requests);
+      }
+      const memberRes = await communitiesService.getMembers(selectedCommunity._id, { limit: 12 });
+      if (memberRes.success && memberRes.data) {
+        setMembers({
+          owner: memberRes.data.owner,
+          admins: memberRes.data.admins || [],
+          members: memberRes.data.members || [],
+          memberCount: memberRes.data.memberCount ?? 0,
+          hasMore: !!memberRes.data.hasMore,
+        });
+      }
+    } catch (err) {
+      setPostError(err.response?.data?.message || err.message || "Could not update the membership mode.");
+    } finally {
+      setUpdatingMode(false);
     }
   };
 
@@ -339,9 +436,39 @@ export default function Communities() {
 
               <div style={{ marginLeft: "auto", display: "flex", gap: "8px", flexShrink: 0 }}>
                 {membership?.isOwner ? (
-                  <Badge variant="primary" style={{ fontSize: "11px" }}>
-                    Owner
-                  </Badge>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--radius-btn)",
+                        overflow: "hidden",
+                      }}
+                      title="Who can join this community"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleJoinModeChange("OPEN")}
+                        disabled={updatingMode}
+                        className={`btn btn-sm ${selectedCommunity.joinMode === "OPEN" ? "btn-primary" : "btn-secondary"}`}
+                        style={{ borderRadius: 0, border: "none" }}
+                      >
+                        Open
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleJoinModeChange("APPROVAL_REQUIRED")}
+                        disabled={updatingMode}
+                        className={`btn btn-sm ${selectedCommunity.joinMode === "APPROVAL_REQUIRED" ? "btn-primary" : "btn-secondary"}`}
+                        style={{ borderRadius: 0, border: "none" }}
+                      >
+                        Approval
+                      </button>
+                    </div>
+                    <Badge variant="primary" style={{ fontSize: "11px" }}>
+                      Owner
+                    </Badge>
+                  </div>
                 ) : membership?.isMember ? (
                   <Button
                     variant="secondary"
@@ -353,7 +480,14 @@ export default function Communities() {
                     Leave Community
                   </Button>
                 ) : membership?.hasPendingRequest ? (
-                  <Button variant="secondary" size="sm" icon={Clock} disabled>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={Clock}
+                    loading={membershipAction}
+                    onClick={handleCancelRequest}
+                    title="Click to cancel your join request"
+                  >
                     Request Pending
                   </Button>
                 ) : selectedCommunity.joinMode === "APPROVAL_REQUIRED" ? (
@@ -450,7 +584,7 @@ export default function Communities() {
           </Card>
 
           {/* Pending join requests — owner/admins only */}
-          {membership?.isAdmin && joinRequests.length > 0 && (
+          {membership?.isAdmin && (
             <Card style={{ padding: "16px", marginBottom: "20px" }}>
               <div
                 style={{
@@ -464,10 +598,18 @@ export default function Communities() {
                 <h2 style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)" }}>
                   Pending Join Requests
                 </h2>
-                <span className="badge" style={{ fontSize: "10.5px", padding: "1px 6px" }}>
-                  {joinRequests.length}
-                </span>
+                {joinRequests.length > 0 && (
+                  <span className="badge" style={{ fontSize: "10.5px", padding: "1px 6px" }}>
+                    {joinRequests.length}
+                  </span>
+                )}
               </div>
+
+              {joinRequests.length === 0 ? (
+                <p style={{ fontSize: "12.5px", color: "var(--text-muted)", margin: 0 }}>
+                  No pending join requests.
+                </p>
+              ) : null}
 
               <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                 {joinRequests.map((req) => (

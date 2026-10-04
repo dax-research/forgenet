@@ -87,7 +87,7 @@ export const logout = async (_req, res) => {
 // POST /api/v1/auth/forgot-password
 // Always answers 200 with the same message: no account enumeration.
 export const forgotPassword = async (req, res) => {
-    const email = req.body.email?.trim().toLowerCase();
+    const email = req.body?.email?.trim().toLowerCase();
 
     if (!email) {
         return res.status(400).json({
@@ -132,8 +132,8 @@ export const forgotPassword = async (req, res) => {
 
 // POST /api/v1/auth/reset-password
 export const resetPassword = async (req, res) => {
-    const rawToken = req.body.token?.trim();
-    const password = req.body.password;
+    const rawToken = req.body?.token?.trim();
+    const password = req.body?.password;
 
     if (!rawToken) {
         return res.status(400).json({ success: false, message: "Reset token is required" });
@@ -146,7 +146,7 @@ export const resetPassword = async (req, res) => {
         });
     }
 
-    if (req.body.confirmPassword !== undefined && req.body.confirmPassword !== password) {
+    if (req.body?.confirmPassword !== undefined && req.body.confirmPassword !== password) {
         return res.status(400).json({ success: false, message: "Passwords do not match" });
     }
 

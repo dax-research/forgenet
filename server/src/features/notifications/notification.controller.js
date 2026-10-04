@@ -34,12 +34,12 @@ export const getNotification = async (req, res) => {
     if (!notification) return res.status(404).json({ success: false, message: "Notification not found" });
     return res.json({ success: true, data: { notification } });
 };
-export const createNotification = async (req, res) => res.status(201).json({ success: true, data: { notification: await Notification.create({ ...req.body, recipient: req.body.recipient || req.user._id }) } });
+export const createNotification = async (req, res) => res.status(201).json({ success: true, data: { notification: await Notification.create({ ...(req.body ?? {}), recipient: req.body?.recipient || req.user._id }) } });
 export const updateNotification = async (req, res) => {
     const notification = await Notification.findById(req.params.id);
     if (!notification) return res.status(404).json({ success: false, message: "Notification not found" });
     if (notification.recipient.toString() !== req.user._id.toString()) return res.status(403).json({ success: false, message: "You are not authorized to modify this notification" });
-    Object.assign(notification, { read: req.body.read ?? true });
+    Object.assign(notification, { read: req.body?.read ?? true });
     await notification.save();
     return res.json({ success: true, data: { notification } });
 };

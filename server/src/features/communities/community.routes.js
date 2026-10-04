@@ -26,6 +26,7 @@ communityRouter.get("/search", searchCommunities);
 communityRouter.get("/:id/members", getMembers);
 communityRouter.get("/:id/join-requests", authenticate, getJoinRequests);
 communityRouter.patch("/:id/join-requests/:requestId", authenticate, respondToJoinRequest);
+communityRouter.delete("/:id/join-requests", authenticate, cancelJoinRequest);
 communityRouter.delete("/:id/join-requests/:requestId", authenticate, cancelJoinRequest);
 communityRouter.get("/:id/posts", getCommunityPosts);
 communityRouter.post("/:id/posts", authenticate, createCommunityPost);

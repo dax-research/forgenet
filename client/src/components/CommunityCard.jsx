@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Users2, Check, Clock, UserCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { communitiesService } from "../services/communities.service";
@@ -15,15 +15,23 @@ export default function CommunityCard({
   // Server-computed membership; authoritative for role and pending requests.
   const [membership, setMembership] = useState(community?.membership ?? null);
   const [loading, setLoading] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   const isMember = membership?.isMember ?? false;
   const isOwner = membership?.isOwner ?? false;
+
+  // The parent owns membership state and refetches the list; mirror it here so
+  // a stale card can never keep offering an action the user already took.
+  useEffect(() => {
+    if (community?.membership) setMembership(community.membership);
+  }, [community?.membership]);
 
   const handleJoinLeave = async (e) => {
     e.stopPropagation();
     if (!user?._id || isOwner) return;
     try {
       setLoading(true);
+      setActionError("");
       if (isMember) {
         await communitiesService.leaveCommunity(community._id);
         setMembership((prev) => ({ ...(prev || {}), isMember: false, role: "NONE" }));
@@ -40,7 +48,38 @@ export default function CommunityCard({
         }
       }
     } catch (err) {
-      console.warn("Join/leave error:", err.message);
+      // 409 = a request/membership already exists. That is a real state, not a
+      // failure, so ask the server what the current state is and show it.
+      if (err.response?.status === 409) {
+        try {
+          const detail = await communitiesService.getCommunity(community._id);
+          if (detail?.data?.community?.membership) {
+            setMembership(detail.data.community.membership);
+            return;
+          }
+        } catch {
+          // fall through to the message below
+        }
+      }
+      setActionError(
+        err.response?.data?.message || "Could not update your membership. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Withdraw a pending request so the user is not stuck in the queue.
+  const handleCancelRequest = async (e) => {
+    e.stopPropagation();
+    if (!user?._id || !membership?.hasPendingRequest) return;
+    try {
+      setLoading(true);
+      setActionError("");
+      await communitiesService.cancelJoinRequest(community._id, membership.pendingRequestId);
+      setMembership((prev) => ({ ...(prev || {}), hasPendingRequest: false, pendingRequestId: null }));
+    } catch (err) {
+      setActionError(err.response?.data?.message || "Could not cancel the request.");
     } finally {
       setLoading(false);
     }
@@ -98,9 +137,16 @@ export default function CommunityCard({
           >
             {community.name}
           </h3>
-          <p style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-            {members.length} {members.length === 1 ? "member" : "members"}
-          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <p style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+              {members.length} {members.length === 1 ? "member" : "members"}
+            </p>
+            {membership?.isAdmin && community?.hasPendingJoinRequest && (
+              <span className="badge badge-warning" style={{ fontSize: "10px", padding: "1px 5px" }}>
+                pending requests
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -128,7 +174,11 @@ export default function CommunityCard({
           borderTop: "1px solid var(--border-subtle)",
         }}
       >
-        {isOwner ? (
+        {actionError ? (
+          <span style={{ fontSize: "11.5px", color: "var(--danger)", textAlign: "right" }}>
+            {actionError}
+          </span>
+        ) : isOwner ? (
           <Badge variant="primary" style={{ fontSize: "11px" }}>
             Owner
           </Badge>
@@ -143,8 +193,15 @@ export default function CommunityCard({
             Leave
           </Button>
         ) : membership?.hasPendingRequest ? (
-          <Button variant="secondary" size="sm" icon={Clock} disabled>
-            Pending
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={Clock}
+            loading={loading}
+            onClick={handleCancelRequest}
+            title="Click to cancel your join request"
+          >
+            Request Pending
           </Button>
         ) : community?.joinMode === "APPROVAL_REQUIRED" ? (
           <Button

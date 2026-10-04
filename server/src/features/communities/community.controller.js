@@ -30,7 +30,9 @@ export const getMembershipState = (community, userId) => {
         isOwner: owner,
         isAdmin: admin,
         isMember: member || owner,
-        hasPendingRequest: request?.status === "pending"
+        hasPendingRequest: request?.status === "pending",
+        // Lets the viewer cancel their own request.
+        pendingRequestId: request?.status === "pending" ? request._id.toString() : null
     };
 };
 
@@ -44,8 +46,13 @@ const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
 
 export const createCommunity = async (req, res) => {
     try {
-        const { name, description, image, joinMode } = req.body;
+        const { name, description, image, joinMode } = req.body ?? {};
         const owner = req.user._id;
+
+        if (joinMode !== undefined && !["OPEN", "APPROVAL_REQUIRED"].includes(joinMode)) {
+            return res.status(400).json({ success: false, message: 'joinMode must be "OPEN" or "APPROVAL_REQUIRED"' });
+        }
+
         const community = await Community.create({
             name,
             description,
@@ -53,7 +60,8 @@ export const createCommunity = async (req, res) => {
             admins: [owner],
             members: [owner],
             image,
-            joinMode: joinMode === "APPROVAL_REQUIRED" ? "APPROVAL_REQUIRED" : "OPEN"
+            // Omitted -> the schema default (APPROVAL_REQUIRED) applies.
+            ...(joinMode ? { joinMode } : {})
         });
         return res.status(201).json({ success: true, message: "Community created successfully", data: { community } });
     } catch (error) {
@@ -98,7 +106,7 @@ export const getCommunity = async (req, res) => {
 };
 
 export const updateCommunity = async (req, res) => {
-    const { name, description, image, joinMode } = req.body;
+    const { name, description, image, joinMode } = req.body ?? {};
     const community = await Community.findById(req.params.id);
     if (!community) {
         return res.status(404).json({ success: false, message: "Community not found" });
@@ -109,9 +117,50 @@ export const updateCommunity = async (req, res) => {
     if (name !== undefined) community.name = name;
     if (description !== undefined) community.description = description;
     if (image !== undefined) community.image = image;
-    if (joinMode === "OPEN" || joinMode === "APPROVAL_REQUIRED") community.joinMode = joinMode;
+
+    if (joinMode !== undefined && !["OPEN", "APPROVAL_REQUIRED"].includes(joinMode)) {
+        return res.status(400).json({ success: false, message: 'joinMode must be "OPEN" or "APPROVAL_REQUIRED"' });
+    }
+
+    let approvedFromPending = [];
+    if (joinMode !== undefined && joinMode !== community.joinMode) {
+        // Switching APPROVAL_REQUIRED -> OPEN: anyone may now join, so the
+        // backlog of pending requests is granted and each person is told.
+        if (joinMode === "OPEN") {
+            approvedFromPending = community.joinRequests.filter((r) => r.status === "pending");
+            for (const request of approvedFromPending) {
+                request.status = "approved";
+                const requesterId = idOf(request.user);
+                if (!community.members.some((m) => idOf(m) === requesterId)) {
+                    community.members.push(request.user);
+                }
+            }
+        }
+        community.joinMode = joinMode;
+    }
+
     await community.save();
-    return res.status(200).json({ success: true, message: "Community updated successfully", data: { community } });
+
+    for (const request of approvedFromPending) {
+        await createNotification({
+            recipientId: request.user,
+            senderId: req.user._id,
+            type: "community",
+            message: `Your request to join ${community.name} was approved.`,
+            data: { communityId: community._id.toString(), action: "approved" },
+            dedupeKey: `community:${community._id}:join_decision:${request._id}`
+        });
+    }
+
+    return res.status(200).json({
+        success: true,
+        message: "Community updated successfully",
+        data: {
+            community,
+            membership: getMembershipState(community, req.user._id),
+            approvedFromPending: approvedFromPending.length
+        }
+    });
 };
 
 export const deleteCommunity = async (req, res) => {
@@ -127,7 +176,7 @@ export const deleteCommunity = async (req, res) => {
 };
 
 export const joinCommunity = async (req, res) => {
-    const community = await Community.findById(req.params.id);
+    let community = await Community.findById(req.params.id);
     if (!community) {
         return res.status(404).json({ success: false, message: "Community not found" });
     }
@@ -137,33 +186,54 @@ export const joinCommunity = async (req, res) => {
 
     // Approval-required community: create a pending request instead of joining.
     if (community.joinMode === "APPROVAL_REQUIRED") {
-        const existing = community.joinRequests.find(
-            (r) => idOf(r.user) === req.user._id.toString() && r.status === "pending"
+        // req.body is undefined for a POST with no body (Express 5 behaviour),
+        // so this must not assume it exists.
+        const requestMessage = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+
+        // Resolve any earlier request from this user (approved/rejected) so the
+        // new pending request is unambiguous, then insert it.
+        await Community.updateOne(
+            { _id: community._id },
+            { $set: { "joinRequests.$[r].status": "superseded" } },
+            { arrayFilters: [{ "r.user": req.user._id, "r.status": { $ne: "pending" } }] }
         );
-        if (existing) {
-            return res.status(409).json({ success: false, message: "A join request is already pending" });
+
+        // The filter makes the insert atomic: it only matches when this user has
+        // NO pending request in THIS community and is not already a member. A
+        // double click or two parallel requests therefore cannot both insert.
+        const updated = await Community.findOneAndUpdate(
+            {
+                _id: community._id,
+                members: { $ne: req.user._id },
+                joinRequests: { $not: { $elemMatch: { user: req.user._id, status: "pending" } } }
+            },
+            { $push: { joinRequests: { user: req.user._id, status: "pending", message: requestMessage } } },
+            { new: true }
+        );
+
+        if (!updated) {
+            const alreadyPending = community.joinRequests.some(
+                (r) => idOf(r.user) === req.user._id.toString() && r.status === "pending"
+            );
+            return res.status(409).json({
+                success: false,
+                message: alreadyPending ? "A join request is already pending" : "User is already a member"
+            });
         }
 
-        // Drop any previously resolved request before adding a fresh one.
-        community.joinRequests = community.joinRequests.filter(
-            (r) => idOf(r.user) !== req.user._id.toString()
-        );
-        community.joinRequests.push({ user: req.user._id, status: "pending", message: req.body.message || "" });
-        await community.save();
-
         await createNotification({
-            recipientId: community.owner,
+            recipientId: updated.owner,
             senderId: req.user._id,
             type: "community",
-            message: `${req.user.name} requested to join ${community.name}.`,
-            data: { communityId: community._id.toString(), action: "join_request" },
-            dedupeKey: `community:${community._id}:join_request:${req.user._id}`
+            message: `${req.user.name} requested to join ${updated.name}.`,
+            data: { communityId: updated._id.toString(), action: "join_request" },
+            dedupeKey: `community:${updated._id}:join_request:${req.user._id}`
         });
 
         return res.status(200).json({
             success: true,
             message: "Join request submitted and awaiting approval",
-            data: { membership: getMembershipState(community, req.user._id) }
+            data: { membership: getMembershipState(updated, req.user._id) }
         });
     }
 
@@ -223,7 +293,7 @@ export const getJoinRequests = async (req, res) => {
 
 // PATCH /api/v1/communities/:id/join-requests/:requestId — owner/admins only.
 export const respondToJoinRequest = async (req, res) => {
-    const decision = req.body.decision;
+    const decision = req.body?.decision;
     if (!["approve", "reject"].includes(decision)) {
         return res.status(400).json({ success: false, message: "decision must be 'approve' or 'reject'" });
     }
@@ -277,9 +347,16 @@ export const cancelJoinRequest = async (req, res) => {
     const community = await Community.findById(req.params.id);
     if (!community) return res.status(404).json({ success: false, message: "Community not found" });
 
-    const request = community.joinRequests.find(
-        (r) => r._id.toString() === req.params.requestId && r.status === "pending"
-    );
+    // Omitting the requestId cancels the viewer's own pending request, which
+    // lets the UI withdraw without having to track the id.
+    const request = req.params.requestId
+        ? community.joinRequests.find(
+              (r) => r._id.toString() === req.params.requestId && r.status === "pending"
+          )
+        : community.joinRequests.find(
+              (r) => idOf(r.user) === req.user._id.toString() && r.status === "pending"
+          );
+
     if (!request) {
         return res.status(404).json({ success: false, message: "Pending join request not found" });
     }

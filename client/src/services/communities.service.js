@@ -30,6 +30,8 @@ export const communitiesService = {
     const res = await api.post(`/communities/${id}/join`);
     return res.data;
   },
+  // (joinCommunity already returns the full envelope, whose .data.membership
+  // carries the new state — see CommunityCard below.)
 
   async leaveCommunity(id) {
     const res = await api.post(`/communities/${id}/leave`);

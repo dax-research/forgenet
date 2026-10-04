@@ -83,7 +83,7 @@ export const getConversation = async (req, res) => {
 };
 
 export const createConversation = async (req, res) => {
-    const participantId = req.body.participantId;
+    const participantId = req.body?.participantId;
     const userId = req.user._id.toString();
 
     // Validate participantId presence
@@ -116,7 +116,7 @@ export const updateConversation = async (req, res) => {
     const conversation = await Conversation.findById(req.params.id);
     if (!conversation) return res.status(404).json({ success: false, message: "Conversation not found" });
     if (!member(conversation, req.user._id)) return res.status(403).json({ success: false, message: "Forbidden" });
-    conversation.title = req.body.title ?? conversation.title;
+    conversation.title = req.body?.title ?? conversation.title;
     await conversation.save();
     return res.json({ success: true, data: { conversation } });
 };
@@ -151,7 +151,7 @@ export const createMessage = async (req, res) => {
     };
 
 export const updateMessage = async (req, res) => {
-    const message = await Message.findOneAndUpdate({ _id: req.params.id, sender: req.user._id }, { content: req.body.content, readAt: req.body.readAt }, { new: true, runValidators: true });
+    const message = await Message.findOneAndUpdate({ _id: req.params.id, sender: req.user._id }, { content: req.body?.content, readAt: req.body?.readAt }, { new: true, runValidators: true });
     if (!message) return res.status(404).json({ success: false, message: "Message not found" });
     return res.json({ success: true, data: { message } });
 };

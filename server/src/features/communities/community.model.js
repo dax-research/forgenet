@@ -8,7 +8,8 @@ const joinRequestSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ["pending", "approved", "rejected"],
+        // "superseded" marks an older request that was replaced by a newer one.
+        enum: ["pending", "approved", "rejected", "superseded"],
         default: "pending"
     },
     message: {
@@ -18,8 +19,11 @@ const joinRequestSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// Prevent more than one pending request per user per community.
-joinRequestSchema.index({ user: 1, status: 1 }, { unique: true, partialFilterExpression: { status: "pending" } });
+// NOTE: deliberately no unique index here. A unique index over an embedded
+// array path is enforced across the entire collection, not per document, so
+// `{ user: 1, status: 1 }` would allow only ONE pending request per user across
+// ALL communities. Duplicate prevention is done atomically in the update filter
+// inside joinCommunity() (pending requests are filtered out on every write).
 
 const communitySchema = new mongoose.Schema(
     {
@@ -57,10 +61,12 @@ const communitySchema = new mongoose.Schema(
         ],
 
         // Membership mode: OPEN = instant join, APPROVAL_REQUIRED = admin approves.
+        // Defaults to APPROVAL_REQUIRED so a community never silently admits
+        // people without the owner ever seeing a request.
         joinMode: {
             type: String,
             enum: ["OPEN", "APPROVAL_REQUIRED"],
-            default: "OPEN"
+            default: "APPROVAL_REQUIRED"
         },
 
         joinRequests: [joinRequestSchema],
