@@ -107,6 +107,17 @@ export const socketService = {
     );
   },
 
+  markConversationRead(conversationId, callback) {
+    const current = this.getSocket();
+    if (!current || !conversationId) return;
+    emitWhenReady(
+      current,
+      "mark_conversation_read",
+      { conversationId: String(conversationId) },
+      callback
+    );
+  },
+
   startTyping(conversationId) {
     const current = this.getSocket();
     if (!current || !conversationId) return;

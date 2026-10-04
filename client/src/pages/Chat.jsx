@@ -12,7 +12,7 @@ import Skeleton from "../components/Skeleton";
 export default function Chat() {
   const { user } = useAuth();
   const location = useLocation();
-  const { refreshBadges, setUnreadMessages } = useBadges();
+  const { refreshBadges, setUnreadMessages, messagesBadge } = useBadges();
 
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
@@ -100,6 +100,24 @@ export default function Chat() {
     // Join Socket room
     socketService.joinConversation(conversationId);
 
+    // Opening the conversation marks it read. REST (not socket) so the
+    // readAt write is persisted even if the socket drops mid-request.
+    const markRead = async () => {
+      try {
+        const res = await chatService.markConversationRead(conversationId);
+        if (!isMounted) return;
+        if (typeof res?.data?.unreadCount === "number") {
+          setUnreadMessages(res.data.unreadCount);
+        }
+        setConversations((prev) =>
+          prev.map((c) => (idsEqual(c._id, conversationId) ? { ...c, unreadCount: 0 } : c))
+        );
+      } catch (err) {
+        console.warn("Mark conversation read error:", err.message);
+      }
+    };
+    markRead();
+
     // Fetch messages
     setLoadingMessages(true);
     chatService
@@ -149,6 +167,18 @@ export default function Chat() {
           if (prev.some((m) => idsEqual(m._id, newMsg._id))) return prev;
           return [...prev, newMsg];
         });
+
+        // The user is looking at this thread, so it is read on arrival.
+        if (!idsEqual(newMsg.sender?._id || newMsg.sender, userIdRef.current)) {
+          chatService
+            .markConversationRead(incomingConvId)
+            .then((res) => {
+              if (typeof res?.data?.unreadCount === "number") {
+                setUnreadMessages(res.data.unreadCount);
+              }
+            })
+            .catch((err) => console.warn("Mark read on new message error:", err.message));
+        }
       }
 
       setConversations((prev) => {
@@ -156,10 +186,21 @@ export default function Chat() {
         if (idx !== -1) {
           const updated = [...prev];
           const [moved] = updated.splice(idx, 1);
+          // Unread count only grows when the message is for a thread the user
+          // is not currently viewing, and never for their own message.
+          const isFromOther = !idsEqual(newMsg.sender?._id || newMsg.sender, userIdRef.current);
+          const isActiveThread = active && idsEqual(incomingConvId, active._id);
+          moved.unreadCount =
+            (moved.unreadCount || 0) + (isFromOther && !isActiveThread ? 1 : 0);
           return [moved, ...updated];
         }
         return prev;
       });
+
+      // A new message from someone else means the total badge is stale.
+      if (!idsEqual(newMsg.sender?._id || newMsg.sender, userIdRef.current)) {
+        refreshBadges();
+      }
     };
 
     const handleUserTyping = ({ userId, conversationId } = {}) => {
@@ -332,7 +373,10 @@ export default function Chat() {
               gap: "10px",
             }}
           >
-            <h2 style={{ fontSize: "16px", fontWeight: 700 }}>Messages</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <h2 style={{ fontSize: "16px", fontWeight: 700 }}>Messages</h2>
+              {messagesBadge && <span className="nav-badge">{messagesBadge}</span>}
+            </div>
             <div style={{ position: "relative" }}>
               <Search
                 size={14}
@@ -390,7 +434,11 @@ export default function Chat() {
                       padding: "10px 14px",
                       cursor: "pointer",
                       borderBottom: "1px solid var(--border-subtle)",
-                      backgroundColor: isActive ? "var(--accent-light)" : "transparent",
+                      backgroundColor: isActive
+                        ? "var(--accent-light)"
+                        : conv.unreadCount > 0
+                        ? "var(--accent-subtle)"
+                        : "transparent",
                       transition: "background-color 0.12s ease",
                     }}
                   >
@@ -402,7 +450,7 @@ export default function Chat() {
                     />
 
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
                         <span
                           style={{
                             fontWeight: isActive ? 600 : 500,
@@ -415,6 +463,12 @@ export default function Chat() {
                         >
                           {other?.name || "Developer"}
                         </span>
+
+                        {!isActive && conv.unreadCount > 0 && (
+                          <span className="nav-badge" style={{ marginLeft: 0, flexShrink: 0 }}>
+                            {conv.unreadCount > 10 ? "10+" : conv.unreadCount}
+                          </span>
+                        )}
                       </div>
                       <p style={{ fontSize: "11px", color: isOnline ? "var(--success)" : "var(--text-muted)" }}>
                         {isOnline ? "Online" : "Offline"}
