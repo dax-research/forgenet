@@ -2,8 +2,11 @@ import Post from "../posts/post.model.js";
 import Community from "./community.model.js";
 import { createNotification } from "../notifications/notification.service.js";
 
+// owner/admins/members are raw ObjectIds before .populate() and documents after.
+const idOf = (value) => (value?._id ?? value)?.toString();
+
 const isMember = (community, userId) =>
-    community.members.some((id) => id.toString() === userId.toString());
+    (community.members || []).some((id) => idOf(id) === userId.toString());
 
 /**
  * Server-side authorization for community posts: only the owner, an admin, or
@@ -11,8 +14,8 @@ const isMember = (community, userId) =>
  */
 export const canPostInCommunity = (community, userId) =>
     isMember(community, userId) ||
-    community.admins.some((id) => id.toString() === userId.toString()) ||
-    community.owner.toString() === userId.toString();
+    (community.admins || []).some((id) => idOf(id) === userId.toString()) ||
+    idOf(community.owner) === userId.toString();
 
 const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
     const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Users2, ArrowLeft, Send } from "lucide-react";
+import { Plus, Users2, ArrowLeft, Send, AlertCircle, Check, UserCheck, Clock } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { communitiesService } from "../services/communities.service";
 import CommunityCard from "../components/CommunityCard";
@@ -11,7 +11,42 @@ import SearchInput from "../components/SearchInput";
 import Skeleton from "../components/Skeleton";
 import EmptyState from "../components/EmptyState";
 import Card from "../components/Card";
+import Badge from "../components/Badge";
 import Avatar from "../components/Avatar";
+import { Link } from "react-router-dom";
+
+function MemberRow({ person, role }) {
+  if (!person) return null;
+
+  const badgeVariant = role === "Owner" ? "primary" : role === "Admin" ? "warning" : null;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "10px",
+        padding: "6px 0",
+        borderBottom: "1px solid var(--border-subtle)",
+      }}
+    >
+      <Link
+        to={`/profile/${person._id}`}
+        style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}
+      >
+        <Avatar src={person.profileImage} name={person.name} size={28} />
+        <span style={{ fontSize: "13px", color: "var(--text-primary)" }}>{person.name}</span>
+      </Link>
+
+      {badgeVariant ? (
+        <span className={`badge badge-${badgeVariant}`} style={{ fontSize: "10.5px", padding: "1px 6px" }}>
+          {role}
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 export default function Communities() {
   const { user } = useAuth();
@@ -26,6 +61,7 @@ export default function Communities() {
     name: "",
     description: "",
     image: "",
+    joinMode: "OPEN",
   });
 
   // Selected Community Detail View
@@ -34,6 +70,12 @@ export default function Communities() {
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [newPostContent, setNewPostContent] = useState("");
   const [submittingPost, setSubmittingPost] = useState(false);
+  const [postError, setPostError] = useState("");
+  const [membershipAction, setMembershipAction] = useState(false);
+  const [members, setMembers] = useState(null);
+  const [showAllMembers, setShowAllMembers] = useState(false);
+  const [joinRequests, setJoinRequests] = useState([]);
+  const [resolvingRequest, setResolvingRequest] = useState("");
 
   const loadCommunities = async () => {
     try {
@@ -55,16 +97,120 @@ export default function Communities() {
 
   const handleSelectCommunity = async (comm) => {
     setSelectedCommunity(comm);
+    setShowAllMembers(false);
+    setPostError("");
     try {
       setLoadingPosts(true);
-      const res = await communitiesService.getCommunityPosts(comm._id);
-      if (res.success && res.data?.posts) {
-        setCommunityPosts(res.data.posts);
+
+      // The list endpoint carries only a summary; re-fetch for authoritative
+      // membership state (role, pending request) and member counts.
+      const [detail, posts, memberRes] = await Promise.all([
+        communitiesService.getCommunity(comm._id),
+        communitiesService.getCommunityPosts(comm._id),
+        communitiesService.getMembers(comm._id, { limit: 12 }),
+      ]);
+
+      if (detail.success && detail.data?.community) {
+        setSelectedCommunity(detail.data.community);
+      }
+      if (posts.success && posts.data?.posts) {
+        setCommunityPosts(posts.data.posts);
+      }
+      if (memberRes.success && memberRes.data) {
+        setMembers({
+          owner: memberRes.data.owner,
+          admins: memberRes.data.admins || [],
+          members: memberRes.data.members || [],
+          memberCount: memberRes.data.memberCount ?? 0,
+          hasMore: !!memberRes.data.hasMore,
+        });
+      }
+
+      // Admins get the pending-request queue.
+      const isAdmin = detail.data?.community?.membership?.isAdmin;
+      if (isAdmin) {
+        const reqs = await communitiesService.getJoinRequests(comm._id);
+        if (reqs.success && reqs.data?.requests) setJoinRequests(reqs.data.requests);
+      } else {
+        setJoinRequests([]);
       }
     } catch (err) {
-      console.warn("Load community posts error:", err.message);
+      console.warn("Load community detail error:", err.message);
     } finally {
       setLoadingPosts(false);
+    }
+  };
+
+  const membership = selectedCommunity?.membership;
+
+  const refreshCommunityDetail = async () => {
+    if (!selectedCommunity?._id) return;
+    const res = await communitiesService.getCommunity(selectedCommunity._id);
+    if (res.success && res.data?.community) {
+      setSelectedCommunity(res.data.community);
+      const list = communities.map((c) =>
+        c._id === res.data.community._id ? res.data.community : c
+      );
+      setCommunities(list);
+    }
+  };
+
+  const handleMembershipAction = async () => {
+    if (!selectedCommunity?._id || !membership) return;
+    try {
+      setMembershipAction(true);
+      setPostError("");
+
+      if (membership.isMember && !membership.isOwner) {
+        await communitiesService.leaveCommunity(selectedCommunity._id);
+      } else {
+        // OPEN communities join immediately; APPROVAL_REQUIRED ones create a
+        // pending request instead.
+        await communitiesService.joinCommunity(selectedCommunity._id);
+      }
+
+      await refreshCommunityDetail();
+      const memberRes = await communitiesService.getMembers(selectedCommunity._id, { limit: 12 });
+      if (memberRes.success && memberRes.data) {
+        setMembers({
+          owner: memberRes.data.owner,
+          admins: memberRes.data.admins || [],
+          members: memberRes.data.members || [],
+          memberCount: memberRes.data.memberCount ?? 0,
+          hasMore: !!memberRes.data.hasMore,
+        });
+      }
+    } catch (err) {
+      setPostError(err.response?.data?.message || err.message || "Membership change failed.");
+    } finally {
+      setMembershipAction(false);
+    }
+  };
+
+  const handleLoadAllMembers = async () => {
+    if (!selectedCommunity?._id) return;
+    try {
+      const res = await communitiesService.getMembers(selectedCommunity._id, { limit: 100 });
+      if (res.success && res.data) {
+        setMembers((prev) => ({ ...prev, members: res.data.members || [], hasMore: false }));
+        setShowAllMembers(true);
+      }
+    } catch (err) {
+      console.warn("Load all members error:", err.message);
+    }
+  };
+
+  const handleResolveRequest = async (requestId, decision) => {
+    if (!selectedCommunity?._id) return;
+    try {
+      setResolvingRequest(requestId + decision);
+      await communitiesService.respondToJoinRequest(selectedCommunity._id, requestId, decision);
+      setJoinRequests((prev) => prev.filter((r) => r._id !== requestId));
+      await refreshCommunityDetail();
+    } catch (err) {
+      setPostError(err.response?.data?.message || err.message || "Could not update the request.");
+    } finally {
+      setResolvingRequest("");
     }
   };
 
@@ -73,6 +219,7 @@ export default function Communities() {
     if (!newPostContent.trim() || !selectedCommunity) return;
     try {
       setSubmittingPost(true);
+      setPostError("");
       const res = await communitiesService.createCommunityPost(selectedCommunity._id, {
         content: newPostContent.trim(),
       });
@@ -85,7 +232,11 @@ export default function Communities() {
         setNewPostContent("");
       }
     } catch (err) {
-      console.warn("Create community post error:", err.message);
+      // Surface the real reason (e.g. 403 from the server-side membership gate).
+      setPostError(
+        err.response?.data?.message ||
+          "Could not create the post. Make sure you are a member of this community."
+      );
     } finally {
       setSubmittingPost(false);
     }
@@ -105,13 +256,14 @@ export default function Communities() {
         name: createData.name.trim(),
         description: createData.description.trim(),
         image: createData.image.trim() || undefined,
+        joinMode: createData.joinMode,
       };
 
       const res = await communitiesService.createCommunity(payload);
       if (res.success && res.data?.community) {
         setCommunities((prev) => [res.data.community, ...prev]);
         setIsCreateModalOpen(false);
-        setCreateData({ name: "", description: "", image: "" });
+        setCreateData({ name: "", description: "", image: "", joinMode: "OPEN" });
       }
     } catch (err) {
       setFormError(err.response?.data?.message || err.message || "Failed to create community.");
@@ -180,41 +332,235 @@ export default function Communities() {
                   {selectedCommunity.description}
                 </p>
                 <p style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
-                  {selectedCommunity.members?.length || 1} members
+                  {members?.memberCount ?? selectedCommunity.memberCount ?? selectedCommunity.members?.length ?? 1}{" "}
+                  {selectedCommunity.joinMode === "APPROVAL_REQUIRED" ? "\u00b7 approval required to join" : "\u00b7 open to join"}
                 </p>
+              </div>
+
+              <div style={{ marginLeft: "auto", display: "flex", gap: "8px", flexShrink: 0 }}>
+                {membership?.isOwner ? (
+                  <Badge variant="primary" style={{ fontSize: "11px" }}>
+                    Owner
+                  </Badge>
+                ) : membership?.isMember ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={Check}
+                    loading={membershipAction}
+                    onClick={handleMembershipAction}
+                  >
+                    Leave Community
+                  </Button>
+                ) : membership?.hasPendingRequest ? (
+                  <Button variant="secondary" size="sm" icon={Clock} disabled>
+                    Request Pending
+                  </Button>
+                ) : selectedCommunity.joinMode === "APPROVAL_REQUIRED" ? (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={UserCheck}
+                    loading={membershipAction}
+                    onClick={handleMembershipAction}
+                  >
+                    Request to Join
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={Users2}
+                    loading={membershipAction}
+                    onClick={handleMembershipAction}
+                  >
+                    Join Community
+                  </Button>
+                )}
               </div>
             </div>
           </Card>
 
-          {/* Community Post Composer */}
+          {/* Community Post Composer — only members can post */}
           <Card style={{ padding: "16px", marginBottom: "20px" }}>
-            <form onSubmit={handleCreateCommunityPost}>
-              <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
-                <Avatar src={user?.profileImage} name={user?.name} size={32} />
-                <textarea
-                  placeholder={`Post an update to ${selectedCommunity.name}...`}
-                  value={newPostContent}
-                  onChange={(e) => setNewPostContent(e.target.value)}
-                  rows={2}
-                  className="textarea"
-                  style={{ flex: 1, fontSize: "13px" }}
-                />
+            {membership?.isMember ? (
+              <form onSubmit={handleCreateCommunityPost}>
+                {postError && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "8px 10px",
+                      marginBottom: "10px",
+                      borderRadius: "var(--radius-btn)",
+                      backgroundColor: "var(--danger-bg)",
+                      border: "1px solid var(--danger-border)",
+                      color: "var(--danger)",
+                      fontSize: "12.5px",
+                    }}
+                  >
+                    <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                    <span>{postError}</span>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                  <Avatar src={user?.profileImage} name={user?.name} size={32} />
+                  <textarea
+                    placeholder={`Post an update to ${selectedCommunity.name}...`}
+                    value={newPostContent}
+                    onChange={(e) => setNewPostContent(e.target.value)}
+                    rows={2}
+                    className="textarea"
+                    style={{ flex: 1, fontSize: "13px" }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "10px" }}>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    loading={submittingPost}
+                    disabled={!newPostContent.trim()}
+                    icon={Send}
+                  >
+                    Create Post
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                  {membership?.hasPendingRequest
+                    ? "Your request to join is pending approval."
+                    : "Join this community to post."}
+                </p>
+              </div>
+            )}
+          </Card>
+
+          {/* Pending join requests — owner/admins only */}
+          {membership?.isAdmin && joinRequests.length > 0 && (
+            <Card style={{ padding: "16px", marginBottom: "20px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  marginBottom: "12px",
+                }}
+              >
+                <UserCheck size={15} style={{ color: "var(--accent)" }} />
+                <h2 style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)" }}>
+                  Pending Join Requests
+                </h2>
+                <span className="badge" style={{ fontSize: "10.5px", padding: "1px 6px" }}>
+                  {joinRequests.length}
+                </span>
               </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "10px" }}>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  loading={submittingPost}
-                  disabled={!newPostContent.trim()}
-                  icon={Send}
-                >
-                  Post to Community
-                </Button>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {joinRequests.map((req) => (
+                  <div
+                    key={req._id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "10px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+                      <Avatar src={req.user?.profileImage} name={req.user?.name} size={32} />
+                      <span style={{ fontSize: "13px", color: "var(--text-primary)" }}>
+                        {req.user?.name}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        icon={Check}
+                        loading={resolvingRequest === req._id + "approve"}
+                        onClick={() => handleResolveRequest(req._id, "approve")}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={resolvingRequest === req._id + "reject"}
+                        onClick={() => handleResolveRequest(req._id, "reject")}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </form>
-          </Card>
+            </Card>
+          )}
+
+          {/* Members / Admins / Owner */}
+          {members && (
+            <Card style={{ padding: "16px", marginBottom: "20px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  marginBottom: "12px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Users2 size={15} style={{ color: "var(--accent)" }} />
+                  <h2 style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)" }}>
+                    Community Members
+                  </h2>
+                  <span className="badge" style={{ fontSize: "10.5px", padding: "1px 6px" }}>
+                    {members.memberCount}
+                  </span>
+                </div>
+                {(showAllMembers || members.hasMore) && (
+                  <button
+                    type="button"
+                    onClick={handleLoadAllMembers}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--accent)",
+                      fontSize: "12.5px",
+                      fontWeight: 500,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showAllMembers ? "Showing all" : "View all members"}
+                  </button>
+                )}
+              </div>
+
+              {members.owner && (
+                <MemberRow person={members.owner} role="Owner" />
+              )}
+              {members.admins.map((a) => (
+                <MemberRow key={a._id} person={a} role="Admin" />
+              ))}
+              {members.members.map((m) => (
+                <MemberRow key={m._id} person={m} role="Member" />
+              ))}
+            </Card>
+          )}
 
           {/* Community Posts Feed */}
           {loadingPosts ? (
@@ -344,6 +690,33 @@ export default function Communities() {
                 placeholder="What is the purpose of this community? Who should join?"
                 required
               />
+
+              <div className="form-group">
+                <label className="form-label">Membership</label>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={() => setCreateData((prev) => ({ ...prev, joinMode: "OPEN" }))}
+                    className={`btn ${createData.joinMode === "OPEN" ? "btn-primary" : "btn-secondary"} btn-sm`}
+                    style={{ flex: 1 }}
+                  >
+                    Open
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreateData((prev) => ({ ...prev, joinMode: "APPROVAL_REQUIRED" }))}
+                    className={`btn ${createData.joinMode === "APPROVAL_REQUIRED" ? "btn-primary" : "btn-secondary"} btn-sm`}
+                    style={{ flex: 1 }}
+                  >
+                    Approval Required
+                  </button>
+                </div>
+                <span className="form-helper">
+                  {createData.joinMode === "OPEN"
+                    ? "Anyone can join immediately."
+                    : "New members must be approved by an admin."}
+                </span>
+              </div>
 
               <Input
                 label="Avatar / Logo Image URL (optional)"

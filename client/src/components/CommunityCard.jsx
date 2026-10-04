@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Users2, Check } from "lucide-react";
+import { Users2, Check, Clock, UserCheck } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { communitiesService } from "../services/communities.service";
 import Card from "./Card";
 import Button from "./Button";
+import Badge from "./Badge";
 
 export default function CommunityCard({
   community,
@@ -11,29 +12,32 @@ export default function CommunityCard({
 }) {
   const { user } = useAuth();
   const [members, setMembers] = useState(community?.members || []);
-  const [isMember, setIsMember] = useState(() => {
-    if (!user?._id || !community?.members) return false;
-    return community.members.some(
-      (m) => (typeof m === "object" ? m._id : m) === user._id
-    );
-  });
+  // Server-computed membership; authoritative for role and pending requests.
+  const [membership, setMembership] = useState(community?.membership ?? null);
   const [loading, setLoading] = useState(false);
+
+  const isMember = membership?.isMember ?? false;
+  const isOwner = membership?.isOwner ?? false;
 
   const handleJoinLeave = async (e) => {
     e.stopPropagation();
-    if (!user?._id) return;
+    if (!user?._id || isOwner) return;
     try {
       setLoading(true);
       if (isMember) {
         await communitiesService.leaveCommunity(community._id);
-        setIsMember(false);
+        setMembership((prev) => ({ ...(prev || {}), isMember: false, role: "NONE" }));
         setMembers((prev) =>
           prev.filter((m) => (typeof m === "object" ? m._id : m) !== user._id)
         );
       } else {
-        await communitiesService.joinCommunity(community._id);
-        setIsMember(true);
-        setMembers((prev) => [...prev, user._id]);
+        const res = await communitiesService.joinCommunity(community._id);
+        if (res?.data?.membership) {
+          setMembership(res.data.membership);
+        } else {
+          setMembership((prev) => ({ ...(prev || {}), isMember: true, role: "MEMBER" }));
+          setMembers((prev) => [...prev, user._id]);
+        }
       }
     } catch (err) {
       console.warn("Join/leave error:", err.message);
@@ -124,15 +128,45 @@ export default function CommunityCard({
           borderTop: "1px solid var(--border-subtle)",
         }}
       >
-        <Button
-          variant={isMember ? "secondary" : "primary"}
-          size="sm"
-          loading={loading}
-          icon={isMember ? Check : Users2}
-          onClick={handleJoinLeave}
-        >
-          {isMember ? "Joined" : "Join"}
-        </Button>
+        {isOwner ? (
+          <Badge variant="primary" style={{ fontSize: "11px" }}>
+            Owner
+          </Badge>
+        ) : isMember ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={loading}
+            icon={Check}
+            onClick={handleJoinLeave}
+          >
+            Leave
+          </Button>
+        ) : membership?.hasPendingRequest ? (
+          <Button variant="secondary" size="sm" icon={Clock} disabled>
+            Pending
+          </Button>
+        ) : community?.joinMode === "APPROVAL_REQUIRED" ? (
+          <Button
+            variant="primary"
+            size="sm"
+            loading={loading}
+            icon={UserCheck}
+            onClick={handleJoinLeave}
+          >
+            Request
+          </Button>
+        ) : (
+          <Button
+            variant="primary"
+            size="sm"
+            loading={loading}
+            icon={Users2}
+            onClick={handleJoinLeave}
+          >
+            Join
+          </Button>
+        )}
       </div>
     </Card>
   );

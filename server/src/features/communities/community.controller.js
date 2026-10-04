@@ -2,14 +2,16 @@ import mongoose from "mongoose";
 import Community from "./community.model.js";
 import { createNotification } from "../notifications/notification.service.js";
 
-const isOwner = (community, userId) => community.owner.toString() === userId.toString();
+// Fields are raw ObjectIds before .populate() and populated documents after,
+// so comparisons must unwrap both shapes.
+const idOf = (value) => (value?._id ?? value)?.toString();
+
+const isOwner = (community, userId) => idOf(community.owner) === userId.toString();
 const isAdmin = (community, userId) =>
     isOwner(community, userId) ||
-    community.admins.some((admin) => admin.toString() === userId.toString());
+    (community.admins || []).some((admin) => idOf(admin) === userId.toString());
 const isMember = (community, userId) =>
-    community.members.some((member) =>
-        (member._id ?? member).toString() === userId.toString()
-    );
+    (community.members || []).some((member) => idOf(member) === userId.toString());
 
 /**
  * Membership state of `userId` relative to the community, used by the frontend
@@ -19,9 +21,9 @@ export const getMembershipState = (community, userId) => {
     if (!userId) return { role: "NONE", isMember: false, isAdmin: false, isOwner: false, hasPendingRequest: false };
 
     const owner = isOwner(community, userId);
-    const admin = owner || community.admins.some((a) => a.toString() === userId.toString());
+    const admin = owner || (community.admins || []).some((a) => idOf(a) === userId.toString());
     const member = isMember(community, userId);
-    const request = community.joinRequests?.find((r) => r.user.toString() === userId.toString());
+    const request = community.joinRequests?.find((r) => idOf(r.user) === userId.toString());
 
     return {
         role: owner ? "OWNER" : admin ? "ADMIN" : member ? "MEMBER" : "NONE",
@@ -136,7 +138,7 @@ export const joinCommunity = async (req, res) => {
     // Approval-required community: create a pending request instead of joining.
     if (community.joinMode === "APPROVAL_REQUIRED") {
         const existing = community.joinRequests.find(
-            (r) => r.user.toString() === req.user._id.toString() && r.status === "pending"
+            (r) => idOf(r.user) === req.user._id.toString() && r.status === "pending"
         );
         if (existing) {
             return res.status(409).json({ success: false, message: "A join request is already pending" });
@@ -144,7 +146,7 @@ export const joinCommunity = async (req, res) => {
 
         // Drop any previously resolved request before adding a fresh one.
         community.joinRequests = community.joinRequests.filter(
-            (r) => r.user.toString() !== req.user._id.toString()
+            (r) => idOf(r.user) !== req.user._id.toString()
         );
         community.joinRequests.push({ user: req.user._id, status: "pending", message: req.body.message || "" });
         await community.save();
@@ -239,7 +241,7 @@ export const respondToJoinRequest = async (req, res) => {
         return res.status(404).json({ success: false, message: "Pending join request not found" });
     }
 
-    const requesterId = request.user.toString();
+    const requesterId = idOf(request.user);
 
     if (decision === "approve") {
         request.status = "approved";
@@ -281,7 +283,7 @@ export const cancelJoinRequest = async (req, res) => {
     if (!request) {
         return res.status(404).json({ success: false, message: "Pending join request not found" });
     }
-    if (request.user.toString() !== req.user._id.toString() && !isAdmin(community, req.user._id)) {
+    if (idOf(request.user) !== req.user._id.toString() && !isAdmin(community, req.user._id)) {
         return res.status(403).json({ success: false, message: "You cannot cancel this join request" });
     }
 
@@ -310,7 +312,7 @@ export const getMembers = async (req, res) => {
     if (!community) return res.status(404).json({ success: false, message: "Community not found" });
 
     const owner = community.owner;
-    const admins = (community.admins || []).filter((a) => a._id.toString() !== owner?._id?.toString());
+    const admins = (community.admins || []).filter((a) => idOf(a) !== idOf(owner));
     const members = community.members || [];
     const preview = members.slice(skip, skip + limit);
 
