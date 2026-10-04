@@ -4,6 +4,7 @@ import { Send, MessageSquare, Search } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { chatService } from "../services/chat.service";
 import { socketService } from "../services/socket.service";
+import { useBadges } from "../context/BadgeContext";
 import Avatar from "../components/Avatar";
 import Button from "../components/Button";
 import Skeleton from "../components/Skeleton";
@@ -11,6 +12,7 @@ import Skeleton from "../components/Skeleton";
 export default function Chat() {
   const { user } = useAuth();
   const location = useLocation();
+  const { refreshBadges, setUnreadMessages } = useBadges();
 
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);

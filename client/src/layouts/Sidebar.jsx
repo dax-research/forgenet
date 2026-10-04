@@ -14,10 +14,12 @@ import {
   LogOut,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { useBadges } from "../context/BadgeContext";
 import Avatar from "../components/Avatar";
 
 export default function Sidebar({ isOpen, onCloseMobile }) {
   const { user, logout, isAuthenticated } = useAuth();
+  const { messagesBadge, notificationsBadge } = useBadges();
 
   const primaryNav = [
     { label: "Home", path: "/", icon: Home },
@@ -25,8 +27,8 @@ export default function Sidebar({ isOpen, onCloseMobile }) {
     { label: "Projects", path: "/projects", icon: FolderGit2 },
     { label: "Communities", path: "/communities", icon: Users2 },
     { label: "Jobs", path: "/jobs", icon: Briefcase },
-    { label: "Messages", path: "/chat", icon: MessageSquare },
-    { label: "Notifications", path: "/notifications", icon: Bell },
+    { label: "Messages", path: "/chat", icon: MessageSquare, badge: messagesBadge },
+    { label: "Notifications", path: "/notifications", icon: Bell, badge: notificationsBadge },
     { label: "Saved", path: "/saved", icon: Bookmark },
   ];
 
@@ -56,6 +58,7 @@ export default function Sidebar({ isOpen, onCloseMobile }) {
               >
                 <Icon size={16} />
                 <span>{item.label}</span>
+                {item.badge && <span className="nav-badge">{item.badge}</span>}
               </NavLink>
             );
           })}

@@ -50,10 +50,28 @@ if (
   );
 }
 
+const optional = (name) => process.env[name]?.trim() || "";
+
+const smtp = Object.freeze({
+  host: optional("SMTP_HOST"),
+  port: Number.parseInt(optional("SMTP_PORT") || "587", 10),
+  secure: optional("SMTP_SECURE") === "true",
+  user: optional("SMTP_USER"),
+  pass: optional("SMTP_PASS"),
+  from: optional("SMTP_FROM") || "ForgeNet <no-reply@forgenet.local>",
+});
+
 export const env = Object.freeze({
   port: parsePort(process.env.PORT ?? "5000"),
   nodeEnv,
   clientUrl: process.env.CLIENT_URL ?? "http://localhost:5173",
   jwtSecret: getRequiredValue("JWT_SECRET"),
   mongoUri,
+
+  // Password reset: hashed token + expiry stored on the user, raw token never persisted.
+  passwordResetTokenTtlMs: Number.parseInt(optional("PASSWORD_RESET_TTL_MINUTES") || "30", 10) * 60 * 1000,
+
+  smtp,
+  // True only when SMTP credentials are actually present.
+  emailEnabled: Boolean(smtp.host && smtp.user && smtp.pass),
 });

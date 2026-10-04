@@ -72,7 +72,15 @@ const userSchema = new mongoose.Schema(
                 type: mongoose.Schema.Types.ObjectId,
                 ref: "Post"
             }
-        ]
+        ],
+        resetPasswordToken: {
+            type: String,
+            select: false
+        },
+        resetPasswordExpire: {
+            type: Date,
+            select: false
+        }
     },
 
     {

@@ -9,22 +9,28 @@ import {
     joinCommunity,
     leaveCommunity,
     searchCommunities,
-    getMembers
+    getMembers,
+    getJoinRequests,
+    respondToJoinRequest,
+    cancelJoinRequest
 } from "./community.controller.js";
-import { authenticate } from "../../middleware/auth.middleware.js";
+import { authenticate, optionalAuthenticate } from "../../middleware/auth.middleware.js";
 import { createCommunityPost, getCommunityPosts } from "./community-post.controller.js";
 
 const communityRouter = Router();
 
 communityRouter.post("/", authenticate, createCommunity);
 
-communityRouter.get("/", getCommunities);
+communityRouter.get("/", optionalAuthenticate, getCommunities);
 communityRouter.get("/search", searchCommunities);
 communityRouter.get("/:id/members", getMembers);
+communityRouter.get("/:id/join-requests", authenticate, getJoinRequests);
+communityRouter.patch("/:id/join-requests/:requestId", authenticate, respondToJoinRequest);
+communityRouter.delete("/:id/join-requests/:requestId", authenticate, cancelJoinRequest);
 communityRouter.get("/:id/posts", getCommunityPosts);
 communityRouter.post("/:id/posts", authenticate, createCommunityPost);
 
-communityRouter.get("/:id", getCommunity);
+communityRouter.get("/:id", optionalAuthenticate, getCommunity);
 
 communityRouter.patch("/:id", authenticate, updateCommunity);
 communityRouter.put("/:id", authenticate, updateCommunity);

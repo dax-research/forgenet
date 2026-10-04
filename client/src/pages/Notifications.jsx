@@ -1,6 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { Bell, CheckCheck } from "lucide-react";
 import { notificationsService } from "../services/notifications.service";
+import { socketService } from "../services/socket.service";
+import { useBadges } from "../context/BadgeContext";
 import NotificationItem from "../components/NotificationItem";
 import Tabs from "../components/Tabs";
 import Button from "../components/Button";
@@ -12,45 +15,66 @@ export default function Notifications() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
+  const { refreshBadges, setUnreadNotifications } = useBadges();
+  const navigate = useNavigate();
 
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     try {
       setLoading(true);
       const res = await notificationsService.getNotifications({ limit: 50 });
       if (res.success && res.data?.notifications) {
         setNotifications(res.data.notifications);
+        if (typeof res.data.unreadCount === "number") {
+          setUnreadNotifications(res.data.unreadCount);
+        }
       }
     } catch (err) {
       console.warn("Load notifications error:", err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [setUnreadNotifications]);
 
   useEffect(() => {
     loadNotifications();
-  }, []);
+  }, [loadNotifications]);
+
+  // Real-time: notifications created while this page is open appear here.
+  useEffect(() => {
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    const handleNew = (notification) => {
+      setNotifications((prev) =>
+        prev.some((n) => n._id === notification?._id) ? prev : [notification, ...prev]
+      );
+      refreshBadges();
+    };
+
+    socket.on("notification:new", handleNew);
+    return () => socket.off("notification:new", handleNew);
+  }, [refreshBadges]);
 
   const handleMarkRead = async (id) => {
+    // Optimistic, so the Unread tab updates immediately without a refresh.
+    setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, read: true } : n)));
     try {
       await notificationsService.markAsRead(id);
-      setNotifications((prev) =>
-        prev.map((n) => (n._id === id ? { ...n, read: true } : n))
-      );
     } catch (err) {
       console.warn("Mark read error:", err.message);
+    } finally {
+      refreshBadges();
     }
   };
 
   const handleMarkAllRead = async () => {
-    const unreadList = notifications.filter((n) => !n.read);
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     try {
-      await Promise.all(
-        unreadList.map((n) => notificationsService.markAsRead(n._id))
-      );
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      await notificationsService.markAllAsRead();
     } catch (err) {
       console.warn("Mark all read error:", err.message);
+    } finally {
+      refreshBadges();
     }
   };
 
@@ -58,18 +82,26 @@ export default function Notifications() {
     try {
       await notificationsService.deleteNotification(id);
       setNotifications((prev) => prev.filter((n) => n._id !== id));
+      refreshBadges();
     } catch (err) {
       console.warn("Delete notification error:", err.message);
     }
   };
 
+  const handleOpen = async (notification) => {
+    if (!notification.read) {
+      await handleMarkRead(notification._id);
+    }
+    if (notification?.sender?._id) {
+      navigate(`/profile/${notification.sender._id}`);
+    }
+  };
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
   const tabs = [
-    { id: "all", label: "All Notifications" },
-    {
-      id: "unread",
-      label: "Unread",
-      count: notifications.filter((n) => !n.read).length || undefined,
-    },
+    { id: "all", label: "All" },
+    { id: "unread", label: "Unread", count: unreadCount || undefined },
   ];
 
   const filteredNotifications = notifications.filter((n) => {
@@ -99,7 +131,7 @@ export default function Notifications() {
           </p>
         </div>
 
-        {notifications.some((n) => !n.read) && (
+        {unreadCount > 0 && (
           <Button
             variant="secondary"
             size="sm"
@@ -136,7 +168,7 @@ export default function Notifications() {
       ) : filteredNotifications.length === 0 ? (
         <EmptyState
           icon={Bell}
-          title="All caught up!"
+          title={activeTab === "unread" ? "No unread notifications" : "All caught up!"}
           description={
             activeTab === "unread"
               ? "You have no unread notifications."
@@ -151,6 +183,7 @@ export default function Notifications() {
               notification={notif}
               onMarkRead={handleMarkRead}
               onDelete={handleDelete}
+              onOpen={handleOpen}
             />
           ))}
         </div>

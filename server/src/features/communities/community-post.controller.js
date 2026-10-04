@@ -1,7 +1,18 @@
 import Post from "../posts/post.model.js";
 import Community from "./community.model.js";
+import { createNotification } from "../notifications/notification.service.js";
 
-const isMember = (community, userId) => community.members.some((id) => id.toString() === userId.toString());
+const isMember = (community, userId) =>
+    community.members.some((id) => id.toString() === userId.toString());
+
+/**
+ * Server-side authorization for community posts: only the owner, an admin, or
+ * a member may post. The React UI also hides this, but the API is the gate.
+ */
+export const canPostInCommunity = (community, userId) =>
+    isMember(community, userId) ||
+    community.admins.some((id) => id.toString() === userId.toString()) ||
+    community.owner.toString() === userId.toString();
 
 const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
     const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
@@ -13,17 +24,45 @@ const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
 
 export const getCommunityPosts = async (req, res) => {
     const { limit, skip } = parsePagination(req);
-    const filter = { community: req.params.communityId };
+    // The route is mounted as /communities/:id/posts, so the param is `id`.
+    const communityId = req.params.communityId || req.params.id;
+    const filter = { community: communityId };
     const total = await Post.countDocuments(filter);
     const posts = await Post.find(filter).populate("author", "name profileImage").sort({ createdAt: -1 }).skip(skip).limit(limit);
     return res.json({ success: true, data: { posts, total, limit, skip } });
 };
 
 export const createCommunityPost = async (req, res) => {
-    const community = await Community.findById(req.params.communityId);
+    const communityId = req.params.communityId || req.params.id;
+    const community = await Community.findById(communityId);
     if (!community) return res.status(404).json({ success: false, message: "Community not found" });
-    if (!isMember(community, req.user._id)) return res.status(403).json({ success: false, message: "Join the community before posting" });
-    const post = await Post.create({ ...req.body, author: req.user._id, community: community._id });
+    if (!canPostInCommunity(community, req.user._id))
+        return res.status(403).json({ success: false, message: "Join the community before posting" });
+
+    const content = String(req.body.content ?? "").trim();
+    if (!content) return res.status(400).json({ success: false, message: "Post content is required" });
+    if (content.length > 3000)
+        return res.status(400).json({ success: false, message: "Post content cannot exceed 3000 characters" });
+
+    const post = await Post.create({ ...req.body, content, author: req.user._id, community: community._id });
+
+    // Notify community admins/owner of new activity (skipped if the author is one of them).
+    const moderators = [community.owner, ...(community.admins || [])];
+    await Promise.all(
+        [...new Map(moderators.map((id) => [id.toString(), id])).values()]
+            .filter((id) => id.toString() !== req.user._id.toString())
+            .map((id) =>
+                createNotification({
+                    recipientId: id,
+                    senderId: req.user._id,
+                    type: "community",
+                    message: `${req.user.name} posted in ${community.name}.`,
+                    data: { communityId: community._id.toString(), postId: post._id.toString() },
+                    dedupeKey: `community_post:${post._id}`
+                })
+            )
+    );
+
     return res.status(201).json({ success: true, data: { post } });
 };
 

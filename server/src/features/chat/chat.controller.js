@@ -2,9 +2,44 @@ import mongoose from "mongoose";
 import Conversation from "./conversation.model.js";
 import Message from "./message.model.js";
 import User from "../users/user.model.js";
+import { createNotification } from "../notifications/notification.service.js";
+import { emitToUser } from "../../services/realtime.service.js";
 
 const valid = (id) => mongoose.isValidObjectId(id);
 const member = (conversation, userId) => conversation.participants.some((id) => id.toString() === userId.toString());
+
+/**
+ * Notifies the recipient of a new direct message and pushes the sender's
+ * unread badge count. Safe to call for both REST and Socket.IO sends because
+ * it runs exactly once per persisted message.
+ */
+export const notifyMessageSent = async (message, senderId) => {
+  const conversation = await Conversation.findById(message.conversation);
+  if (!conversation) return;
+
+  const recipient = conversation.participants.find(
+    (id) => id.toString() !== senderId.toString()
+  );
+  if (!recipient) return;
+
+  await createNotification({
+    recipientId: recipient,
+    senderId,
+    type: "message",
+    message: `New message: ${message.content.slice(0, 80)}`,
+    data: { conversationId: message.conversation.toString(), messageId: message._id.toString() },
+    // One notification per message, no matter which transport created it.
+    dedupeKey: `message:${message._id}`,
+  });
+
+  const conversations = await Conversation.find({ participants: recipient }).select("_id");
+  const unreadCount = await Message.countDocuments({
+    conversation: { $in: conversations.map((c) => c._id) },
+    sender: { $ne: recipient },
+    readAt: null,
+  });
+  emitToUser(recipient, "messages:unread_count", { unreadCount, conversationId: message.conversation.toString() });
+};
 
 const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
     const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
@@ -19,7 +54,25 @@ export const getConversations = async (req, res) => {
     const filter = { participants: req.user._id };
     const total = await Conversation.countDocuments(filter);
     const conversations = await Conversation.find(filter).populate("participants", "name profileImage").sort({ updatedAt: -1 }).skip(skip).limit(limit);
-    return res.json({ success: true, data: { conversations, total, limit, skip } });
+
+    // Per-conversation unread counts, derived from Message.readAt.
+    const unreadRows = conversations.length
+        ? await Message.aggregate([
+              { $match: { conversation: { $in: conversations.map((c) => c._id) }, sender: { $ne: req.user._id }, readAt: null } },
+              { $group: { _id: "$conversation", count: { $sum: 1 } } }
+          ])
+        : [];
+
+    const unreadMap = {};
+    for (const row of unreadRows) unreadMap[row._id.toString()] = row.count;
+    const unreadCount = unreadRows.reduce((sum, row) => sum + row.count, 0);
+
+    const withUnread = conversations.map((c) => ({
+        ...c.toObject(),
+        unreadCount: unreadMap[c._id.toString()] || 0
+    }));
+
+    return res.json({ success: true, data: { conversations: withUnread, total, unreadCount, limit, skip } });
 };
 
 export const getConversation = async (req, res) => {
@@ -92,9 +145,10 @@ export const createMessage = async (req, res) => {
     if (!conversation || !member(conversation, req.user._id)) return res.status(404).json({ success: false, message: "Conversation not found" });
     if (!req.body.content?.trim()) return res.status(400).json({ success: false, message: "Message content is required" });
     const message = await Message.create({ conversation: conversation._id, sender: req.user._id, content: req.body.content });
-    await Conversation.findByIdAndUpdate(conversation._id, { updatedAt: new Date() });
-    return res.status(201).json({ success: true, data: { message } });
-};
+        await Conversation.findByIdAndUpdate(conversation._id, { updatedAt: new Date() });
+        await notifyMessageSent(message, req.user._id);
+        return res.status(201).json({ success: true, data: { message } });
+    };
 
 export const updateMessage = async (req, res) => {
     const message = await Message.findOneAndUpdate({ _id: req.params.id, sender: req.user._id }, { content: req.body.content, readAt: req.body.readAt }, { new: true, runValidators: true });

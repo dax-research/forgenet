@@ -24,6 +24,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.4",
     "multer": "^2.4.0",
+    "nodemailer": "^10.0.14",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {

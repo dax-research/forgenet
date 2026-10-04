@@ -36,6 +36,26 @@ export const communitiesService = {
     return res.data;
   },
 
+  async requestToJoin(id, message) {
+    const res = await api.post(`/communities/${id}/join`, { message });
+    return res.data;
+  },
+
+  async getJoinRequests(id) {
+    const res = await api.get(`/communities/${id}/join-requests`);
+    return res.data;
+  },
+
+  async respondToJoinRequest(id, requestId, decision) {
+    const res = await api.patch(`/communities/${id}/join-requests/${requestId}`, { decision });
+    return res.data;
+  },
+
+  async cancelJoinRequest(id, requestId) {
+    const res = await api.delete(`/communities/${id}/join-requests/${requestId}`);
+    return res.data;
+  },
+
   async getMembers(id, params = {}) {
     const res = await api.get(`/communities/${id}/members`, { params });
     return res.data;

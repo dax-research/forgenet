@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Post from "./post.model.js";
 import User from "../users/user.model.js";
 import { uploadMediaFiles } from "../../services/storage/index.js";
+import { createNotification } from "../notifications/notification.service.js";
 
 const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
     const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
@@ -306,6 +307,15 @@ export const likePost = async (req, res) => {
         if (!alreadyLiked) {
             post.likes.push(userId);
             await post.save();
+
+            await createNotification({
+                recipientId: post.author,
+                senderId: userId,
+                type: "like",
+                message: `${req.user.name} liked your post.`,
+                data: { postId: post._id.toString() },
+                dedupeKey: `like:${post._id}:${userId}`
+            });
         }
 
         return res.status(200).json({

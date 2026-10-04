@@ -1,10 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
+import { BadgeProvider } from "./context/BadgeContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import MainLayout from "./layouts/MainLayout";
 
 import Home from "./pages/Home";
 import Login from "./pages/Login";
+import ResetPassword from "./pages/ResetPassword";
 import Register from "./pages/Register";
 import Explore from "./pages/Explore";
 import Projects from "./pages/Projects";
@@ -21,10 +23,12 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <BadgeProvider>
         <Routes>
           {/* Public Auth Routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Protected Application Routes */}
           <Route
@@ -151,6 +155,7 @@ function App() {
           {/* Catch-all redirect */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </BadgeProvider>
       </AuthProvider>
     </BrowserRouter>
   );

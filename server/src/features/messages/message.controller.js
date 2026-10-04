@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Conversation from "../chat/conversation.model.js";
 import Message from "./message.model.js";
 import User from "../users/user.model.js"; // for potential future checks
+import { emitToUser } from "../../services/realtime.service.js";
 
 const valid = (id) => mongoose.isValidObjectId(id);
 
@@ -11,6 +12,58 @@ const isParticipant = async (conversationId, userId) => {
   if (!convo) return null;
   const member = convo.participants.some((pid) => pid.toString() === userId.toString());
   return member ? convo : null;
+};
+
+/**
+ * Total unread messages for a user across every conversation they participate
+ * in. A message is unread for a given user when it was sent by someone else
+ * and its readAt is still null — readAt on the document is the source of truth.
+ */
+export const countUnread = async (userId) => {
+  const conversations = await Conversation.find({ participants: userId }).select("_id");
+  const conversationIds = conversations.map((c) => c._id);
+
+  if (conversationIds.length === 0) return 0;
+
+  return Message.countDocuments({
+    conversation: { $in: conversationIds },
+    sender: { $ne: userId },
+    readAt: null,
+  });
+};
+
+// GET /api/v1/messages/unread-count
+export const getUnreadCount = async (req, res) => {
+  const unreadCount = await countUnread(req.user._id);
+  return res.json({ success: true, data: { unreadCount } });
+};
+
+// PUT /api/v1/messages/conversation/:conversationId/read
+// Marks every message in the conversation as read for the requesting participant.
+export const markConversationRead = async (req, res) => {
+  const { conversationId } = req.params;
+  const userId = req.user._id;
+
+  if (!valid(conversationId)) {
+    return res.status(400).json({ success: false, message: "Invalid conversation ID" });
+  }
+
+  const conversation = await isParticipant(conversationId, userId);
+  if (!conversation) {
+    const exists = await Conversation.findById(conversationId);
+    if (!exists) return res.status(404).json({ success: false, message: "Conversation not found" });
+    return res.status(403).json({ success: false, message: "Forbidden" });
+  }
+
+  const result = await Message.updateMany(
+    { conversation: conversation._id, sender: { $ne: userId }, readAt: null },
+    { $set: { readAt: new Date() } }
+  );
+
+  const unreadCount = await countUnread(userId);
+  emitToUser(userId, "messages:unread_count", { unreadCount });
+
+  return res.json({ success: true, data: { updatedCount: result.modifiedCount, unreadCount } });
 };
 
 /**

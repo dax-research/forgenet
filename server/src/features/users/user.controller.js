@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import User from "./user.model.js";
 import Post from "../posts/post.model.js";
+import { createNotification } from "../notifications/notification.service.js";
 
 const publicUser = (user) => {
     const value = user.toObject ? user.toObject() : { ...user };
@@ -15,9 +16,9 @@ const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
     const rawLimit = req.query.limit;
     const rawSkip = req.query.skip;
 
-    const validateNumber = (value, name, minimum, allowZero = false) => {
+    const validateNumber = (value, name, minimum, allowZero = false, def) => {
         if (value === undefined) {
-            return { valid: true, value: minimum };
+            return { valid: true, value: def !== undefined ? def : minimum };
         }
 
         const parsed = Number(value);
@@ -28,10 +29,10 @@ const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
         return { valid: true, value: parsed };
     };
 
-    const limitResult = validateNumber(rawLimit, "limit", 1, false);
+    const limitResult = validateNumber(rawLimit, "limit", 1, false, defaultLimit);
     if (!limitResult.valid) return { error: limitResult.message };
 
-    const skipResult = validateNumber(rawSkip, "skip", 0, true);
+    const skipResult = validateNumber(rawSkip, "skip", 0, true, 0);
     if (!skipResult.valid) return { error: skipResult.message };
 
     return { limit: limitResult.value, skip: skipResult.value, error: null };
@@ -173,8 +174,24 @@ export const followUser = async (req, res) => {
     if (req.params.id === req.user._id.toString()) return res.status(400).json({ success: false, message: "You cannot follow yourself" });
     const target = await User.findById(req.params.id);
     if (!target) return res.status(404).json({ success: false, message: "User not found" });
+
+    // Only notify on a genuinely new follow edge.
+    const alreadyFollowing = (req.user.following || []).some((id) => id.toString() === target._id.toString());
+
     await User.findByIdAndUpdate(req.user._id, { $addToSet: { following: target._id } });
     await User.findByIdAndUpdate(target._id, { $addToSet: { followers: req.user._id } });
+
+    if (!alreadyFollowing) {
+        await createNotification({
+            recipientId: target._id,
+            senderId: req.user._id,
+            type: "follow",
+            message: `${req.user.name} started following you.`,
+            data: { userId: req.user._id.toString() },
+            dedupeKey: `follow:${req.user._id}:${target._id}`
+        });
+    }
+
     return res.status(200).json({ success: true, message: "User followed successfully" });
 };
 

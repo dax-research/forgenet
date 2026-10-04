@@ -1,6 +1,7 @@
 import {
   Heart,
   MessageSquare,
+  Reply,
   UserPlus,
   Users2,
   Bell,
@@ -13,6 +14,7 @@ export default function NotificationItem({
   notification,
   onMarkRead,
   onDelete,
+  onOpen,
 }) {
   const getIcon = (type) => {
     switch (type) {
@@ -20,6 +22,8 @@ export default function NotificationItem({
         return <Heart size={14} style={{ color: "var(--danger)" }} />;
       case "comment":
         return <MessageSquare size={14} style={{ color: "var(--accent)" }} />;
+      case "reply":
+        return <Reply size={14} style={{ color: "var(--accent)" }} />;
       case "follow":
         return <UserPlus size={14} style={{ color: "var(--success)" }} />;
       case "community":
@@ -44,8 +48,13 @@ export default function NotificationItem({
 
   const sender = notification.sender || {};
 
+  const handleRowClick = () => {
+    if (onOpen) onOpen(notification);
+  };
+
   return (
     <div
+      onClick={handleRowClick}
       style={{
         display: "flex",
         alignItems: "center",
@@ -54,8 +63,11 @@ export default function NotificationItem({
         padding: "12px 14px",
         backgroundColor: notification.read ? "var(--surface)" : "var(--accent-subtle)",
         border: "1px solid var(--border)",
+        // Unread notifications carry a subtle accent edge.
+        borderLeft: notification.read ? "1px solid var(--border)" : "3px solid var(--accent)",
         borderRadius: "var(--radius-card)",
         transition: "background-color 0.15s ease",
+        cursor: onOpen ? "pointer" : "default",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: 0 }}>
@@ -84,9 +96,16 @@ export default function NotificationItem({
           <p style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: "1.4" }}>
             {notification.message || "You have a new notification."}
           </p>
-          <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-            {formatTimestamp(notification.createdAt)}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            {!notification.read && (
+              <span style={{ fontSize: "10.5px", fontWeight: 600, color: "var(--accent)" }}>
+                New
+              </span>
+            )}
+            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+              {formatTimestamp(notification.createdAt)}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -94,7 +113,10 @@ export default function NotificationItem({
         {!notification.read && onMarkRead && (
           <button
             type="button"
-            onClick={() => onMarkRead(notification._id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMarkRead(notification._id);
+            }}
             style={{
               color: "var(--accent)",
               padding: "4px",
@@ -110,7 +132,10 @@ export default function NotificationItem({
         {onDelete && (
           <button
             type="button"
-            onClick={() => onDelete(notification._id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(notification._id);
+            }}
             style={{
               color: "var(--text-muted)",
               padding: "4px",

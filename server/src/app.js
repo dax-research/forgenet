@@ -29,7 +29,7 @@ const app = express();
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: Number.parseInt(process.env.AUTH_RATE_LIMIT_MAX ?? "20", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: "Too many auth requests, please try again later." },
@@ -37,7 +37,7 @@ const authLimiter = rateLimit({
 
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: Number.parseInt(process.env.API_RATE_LIMIT_MAX ?? "200", 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: "Too many requests, please try again later." },

@@ -6,6 +6,8 @@ import { env } from "../config/env.js";
 import User from "../features/users/user.model.js";
 import Conversation from "../features/chat/conversation.model.js";
 import Message from "../features/messages/message.model.js";
+import { setIO } from "../services/realtime.service.js";
+import { notifyMessageSent } from "../features/chat/chat.controller.js";
 
 /**
  * Attaches a Socket.IO server to an existing HTTP server.
@@ -18,6 +20,9 @@ export const attachSocketServer = (httpServer) => {
       credentials: true,
     },
   });
+
+  // Share the instance so REST handlers can emit to a user's sockets.
+  setIO(io);
 
   // In‑memory map of userId → Set of active socket IDs.
   const userSockets = new Map(); // string => Set<string>
@@ -156,8 +161,14 @@ export const attachSocketServer = (httpServer) => {
     }
   });
 
-  io.on("connection", (socket) => {
+  // Each socket joins a per-user room so server-side REST handlers can push
+  // events (new notifications, unread counts) to every tab the user has open.
+  const userRoom = (userId) => `user:${userId.toString()}`;
+
+io.on("connection", (socket) => {
     console.log(`Socket connected: ${socket.id}, user: ${socket.user._id}`);
+
+    socket.join(userRoom(socket.user._id));
 
     // Track user presence
     const isFirstSocket = addUserSocket(socket.user._id, socket.id);
@@ -252,10 +263,45 @@ export const attachSocketServer = (httpServer) => {
         const populated = await message.populate("sender", "name profileImage");
         const payload = serializeMessage(populated);
         emitToConversationParticipants(conversation, "new_message", payload);
+
+        // Shared with the REST path so exactly one notification per message.
+        await notifyMessageSent(message, socket.user._id);
         if (ack) return ack({ success: true, data: { message: payload } });
       } catch (e) {
         console.error("[socket] send_message failed:", e.message);
         emitError(socket, ack, "Server error while sending message");
+      }
+    });
+
+    // ---------- Mark Conversation Read ----------
+    socket.on("mark_conversation_read", async (data, ack) => {
+      try {
+        const { conversationId } = data || {};
+        if (!conversationId) {
+          return emitError(socket, ack, "conversationId is required");
+        }
+        const { error, conversation } = await validateConversationAccess(
+          conversationId,
+          socket.user._id
+        );
+        if (error) {
+          return emitError(socket, ack, error);
+        }
+        await Message.updateMany(
+          { conversation: conversation._id, sender: { $ne: socket.user._id }, readAt: null },
+          { $set: { readAt: new Date() } }
+        );
+        const conversations = await Conversation.find({ participants: socket.user._id }).select("_id");
+        const unreadCount = await Message.countDocuments({
+          conversation: { $in: conversations.map((c) => c._id) },
+          sender: { $ne: socket.user._id },
+          readAt: null,
+        });
+        emitToUserSockets(socket.user._id, "messages:unread_count", { unreadCount });
+        if (ack) return ack({ success: true, data: { unreadCount } });
+      } catch (e) {
+        console.error("[socket] mark_conversation_read failed:", e.message);
+        emitError(socket, ack, "Server error while marking conversation read");
       }
     });
 

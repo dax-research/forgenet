@@ -1,4 +1,5 @@
 import Notification from "./notification.model.js";
+import { emitToUser } from "../../services/realtime.service.js";
 
 const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
     const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
@@ -11,12 +12,25 @@ const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
 export const getNotifications = async (req, res) => {
     const { limit, skip } = parsePagination(req);
     const filter = { recipient: req.user._id };
+    if (req.query.unread === "true") {
+        filter.read = false;
+    }
+
     const total = await Notification.countDocuments(filter);
-    const notifications = await Notification.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit);
-    return res.json({ success: true, data: { notifications, total, limit, skip } });
+    const unreadCount = await Notification.countDocuments({ recipient: req.user._id, read: false });
+    const notifications = await Notification.find(filter).populate("sender", "name profileImage").sort({ createdAt: -1 }).skip(skip).limit(limit);
+    return res.json({ success: true, data: { notifications, total, unreadCount, limit, skip } });
 };
+
+// GET /api/v1/notifications/unread-count
+// Lightweight endpoint backing the sidebar badge; the database stays the source of truth.
+export const getUnreadCount = async (req, res) => {
+    const unreadCount = await Notification.countDocuments({ recipient: req.user._id, read: false });
+    return res.json({ success: true, data: { unreadCount } });
+};
+
 export const getNotification = async (req, res) => {
-    const notification = await Notification.findOne({ _id: req.params.id, recipient: req.user._id });
+    const notification = await Notification.findOne({ _id: req.params.id, recipient: req.user._id }).populate("sender", "name profileImage");
     if (!notification) return res.status(404).json({ success: false, message: "Notification not found" });
     return res.json({ success: true, data: { notification } });
 };
@@ -29,6 +43,22 @@ export const updateNotification = async (req, res) => {
     await notification.save();
     return res.json({ success: true, data: { notification } });
 };
+export const markAllAsRead = async (req, res) => {
+    const result = await Notification.updateMany(
+        { recipient: req.user._id, read: false },
+        { $set: { read: true } }
+    );
+
+    const unreadCount = await Notification.countDocuments({ recipient: req.user._id, read: false });
+    emitToUser(req.user._id, "notification:read_all", { unreadCount });
+
+    return res.json({
+        success: true,
+        message: "All notifications marked as read",
+        data: { updatedCount: result.modifiedCount, unreadCount }
+    });
+};
+
 export const deleteNotification = async (req, res) => {
     const notification = await Notification.findById(req.params.id);
     if (!notification) return res.status(404).json({ success: false, message: "Notification not found" });

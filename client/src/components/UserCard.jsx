@@ -8,7 +8,7 @@ import Avatar from "./Avatar";
 import Button from "./Button";
 import Badge from "./Badge";
 
-export default function UserCard({ user, onMessageClick }) {
+export default function UserCard({ user, onMessageClick, onFollowToggle }) {
   const { user: currentUser } = useAuth();
   const isSelf = currentUser?._id === user?._id;
 
@@ -27,9 +27,11 @@ export default function UserCard({ user, onMessageClick }) {
       if (isFollowing) {
         await usersService.unfollowUser(user._id);
         setIsFollowing(false);
+        if (onFollowToggle) onFollowToggle(user._id, false);
       } else {
         await usersService.followUser(user._id);
         setIsFollowing(true);
+        if (onFollowToggle) onFollowToggle(user._id, true);
       }
     } catch (err) {
       console.warn("Follow toggle error:", err.message);

@@ -33,7 +33,7 @@ export default function Following() {
           Following
         </h1>
         <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "2px" }}>
-          Developers, engineers, and creators you are keeping up with
+          {following.length} {following.length === 1 ? "developer" : "developers"} you are keeping up with
         </p>
       </div>
 
@@ -60,7 +60,15 @@ export default function Following() {
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "16px" }}>
           {following.map((u) => (
-            <UserCard key={u._id} user={u} />
+            <UserCard 
+              key={u._id} 
+              user={u} 
+              onFollowToggle={(id, isFollowing) => {
+                if (!isFollowing) {
+                  setFollowing((prev) => prev.filter((user) => user._id !== id));
+                }
+              }}
+            />
           ))}
         </div>
       )}

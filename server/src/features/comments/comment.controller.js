@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 import Comment from "./comment.model.js";
+import Post from "../posts/post.model.js";
+import { createNotification } from "../notifications/notification.service.js";
 
 const parsePagination = (req, defaultLimit = 10, maxLimit = 50) => {
     const rawLimit = Number.parseInt(req.query.limit ?? String(defaultLimit), 10);
@@ -14,7 +16,40 @@ export const createComment = async (req, res) => {
     try {
         const post = req.params.postId || req.body.post;
         const { content, parentComment } = req.body;
-        const comment = await Comment.create({ author: req.user._id, post, content, parentComment });
+
+        if (!post || !mongoose.isValidObjectId(post)) {
+            return res.status(400).json({ success: false, message: "A valid post ID is required" });
+        }
+        if (!content || !String(content).trim()) {
+            return res.status(400).json({ success: false, message: "Comment content is required" });
+        }
+
+        const parent = parentComment ? await Comment.findById(parentComment) : null;
+        const comment = await Comment.create({ author: req.user._id, post, content: String(content).trim(), parentComment });
+
+        const postDoc = await Post.findById(post).select("author");
+        if (postDoc) {
+            // A reply notifies the comment author; otherwise the post author.
+            if (parent) {
+                await createNotification({
+                    recipientId: parent.author,
+                    senderId: req.user._id,
+                    type: "reply",
+                    message: `${req.user.name} replied to your comment.`,
+                    data: { postId: post.toString(), commentId: comment._id.toString() },
+                    dedupeKey: `reply:${comment._id}`
+                });
+            } else {
+                await createNotification({
+                    recipientId: postDoc.author,
+                    senderId: req.user._id,
+                    type: "comment",
+                    message: `${req.user.name} commented on your post.`,
+                    data: { postId: post.toString(), commentId: comment._id.toString() },
+                    dedupeKey: `comment:${comment._id}`
+                });
+            }
+        }
 
         return res.status(201).json({
             success: true,

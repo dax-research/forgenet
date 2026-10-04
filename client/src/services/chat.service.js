@@ -26,6 +26,16 @@ export const chatService = {
     return res.data;
   },
 
+  async getUnreadCount() {
+    const res = await api.get("/messages/unread-count");
+    return res.data;
+  },
+
+  async markConversationRead(conversationId) {
+    const res = await api.put(`/messages/conversation/${conversationId}/read`);
+    return res.data;
+  },
+
   async createMessage(conversationId, content) {
     const res = await api.post(`/conversations/${conversationId}/messages`, { content });
     return res.data;

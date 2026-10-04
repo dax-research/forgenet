@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useLocation } from "react-router-dom";
-import { Code2, Lock, Mail, AlertCircle } from "lucide-react";
+import { Code2, Lock, Mail, MailCheck, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { authService } from "../services/auth.service";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import Card from "../components/Card";
@@ -11,6 +12,8 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetSending, setResetSending] = useState(false);
 
   const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -42,6 +45,28 @@ export default function Login() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (!email.trim()) {
+      setError("Enter your email address first, then choose \u201cForgot password?\u201d.");
+      return;
+    }
+
+    try {
+      setResetSending(true);
+      const res = await authService.forgotPassword(email.trim());
+      // The backend always answers with the same generic message.
+      setResetSent(true);
+      setError(res?.message || "If an account exists for this email, a reset link has been sent.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not process the request. Please try again.");
+    } finally {
+      setResetSending(false);
     }
   };
 
@@ -88,14 +113,18 @@ export default function Login() {
               gap: "8px",
               padding: "10px 12px",
               borderRadius: "var(--radius-btn)",
-              backgroundColor: "var(--danger-bg)",
-              border: "1px solid var(--danger-border)",
-              color: "var(--danger)",
+              backgroundColor: resetSent ? "var(--accent-subtle)" : "var(--danger-bg)",
+              border: `1px solid ${resetSent ? "#B4D2FB" : "var(--danger-border)"}`,
+              color: resetSent ? "var(--accent)" : "var(--danger)",
               fontSize: "13px",
               marginBottom: "16px",
             }}
           >
-            <AlertCircle size={16} style={{ flexShrink: 0 }} />
+            {resetSent ? (
+              <MailCheck size={16} style={{ flexShrink: 0 }} />
+            ) : (
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+            )}
             <span>{error}</span>
           </div>
         )}
@@ -124,6 +153,25 @@ export default function Login() {
             required
             autoComplete="current-password"
           />
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "-4px" }}>
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              disabled={resetSending || resetSent}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                fontSize: "12.5px",
+                fontWeight: 500,
+                color: "var(--accent)",
+                cursor: resetSent ? "default" : "pointer",
+              }}
+            >
+              {resetSent ? "Reset link sent" : "Forgot password?"}
+            </button>
+          </div>
 
           <Button
             type="submit"

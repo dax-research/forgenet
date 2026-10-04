@@ -9,4 +9,11 @@ const notificationSchema = new mongoose.Schema({
 	data: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 
+notificationSchema.index({ recipient: 1, read: 1, createdAt: -1 });
+// Guards against duplicate notifications for the same logical action.
+notificationSchema.index(
+	{ recipient: 1, "data.dedupeKey": 1 },
+	{ unique: true, partialFilterExpression: { "data.dedupeKey": { $type: "string" } } }
+);
+
 export default mongoose.model("Notification", notificationSchema);
