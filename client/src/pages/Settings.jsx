@@ -29,7 +29,8 @@ export default function Settings() {
     isJobSeeking: !!user?.isJobSeeking,
   });
   const [profileSaving, setProfileSaving] = useState(false);
-  const [profileSuccess, setProfileSuccess] = useState(false);
+  const [profileSuccess, setProfileSuccess] = useState("");
+  const [successTimer, setSuccessTimer] = useState(null);
 
   // Password Form
   const [currentPassword, setCurrentPassword] = useState("");
@@ -56,10 +57,22 @@ export default function Settings() {
       };
 
       setAvatarError("");
-      await updateProfile(payload, avatarFile ?? undefined);
-      handleClearAvatarSelection();
-      setProfileSuccess(true);
-      setTimeout(() => setProfileSuccess(false), 3000);
+      const hadPhoto = !!avatarFile;
+      const saved = await updateProfile(payload, avatarFile ?? undefined);
+
+      // Guard against a silent failure: if a photo was chosen but the server
+      // did not store one, say so instead of reporting success.
+      if (hadPhoto && !saved?.profileImage) {
+        setAvatarError("The photo could not be uploaded. Please try again.");
+      } else {
+        setProfileSuccess(
+          hadPhoto ? "Profile and photo updated successfully!" : "Profile updated successfully!"
+        );
+        handleClearAvatarSelection();
+      }
+
+      if (successTimer) clearTimeout(successTimer);
+      setSuccessTimer(setTimeout(() => setProfileSuccess(""), 3000));
     } catch (err) {
       setAvatarError(
         err.response?.data?.message || "Could not save your profile."
@@ -180,7 +193,7 @@ export default function Settings() {
               }}
             >
               <Check size={16} />
-              <span>Profile updated successfully!</span>
+              <span>{profileSuccess}</span>
             </div>
           )}
 

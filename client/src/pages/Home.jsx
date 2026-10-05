@@ -28,6 +28,7 @@ export default function Home() {
 
   const [activeTab, setActiveTab] = useState("for-you");
   const [posts, setPosts] = useState([]);
+  const [editingPost, setEditingPost] = useState(null);
   const [loading, setLoading] = useState(true);
   const [featuredProjects, setFeaturedProjects] = useState([]);
   const [suggestedUsers, setSuggestedUsers] = useState([]);
@@ -115,6 +116,24 @@ export default function Home() {
 
   const handlePostDeleted = (deletedId) => {
     setPosts((prev) => prev.filter((p) => p._id !== deletedId));
+    // Deleting the post being edited means there is nothing left to edit.
+    setEditingPost((prev) => (prev && prev._id === deletedId ? null : prev));
+  };
+
+  const handleStartEdit = (post) => {
+    setEditingPost(post);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handlePostUpdated = async (updatedData) => {
+    if (!editingPost?._id) return;
+    const res = await postsService.updatePost(editingPost._id, updatedData);
+    if (res.success && res.data?.post) {
+      setPosts((prev) =>
+        prev.map((p) => (p._id === editingPost._id ? { ...p, ...res.data.post } : p))
+      );
+    }
+    setEditingPost(null);
   };
 
   const handleFollowUser = async (userId) => {
@@ -157,7 +176,16 @@ export default function Home() {
         {/* Left Column: Feed */}
         <div style={{ minWidth: 0 }}>
           {/* Post Composer */}
-          <PostComposer onPostCreated={handlePostCreated} />
+          {editingPost ? (
+            <PostComposer
+              key={editingPost._id}
+              post={editingPost}
+              onPostUpdated={handlePostUpdated}
+              onCancelEdit={() => setEditingPost(null)}
+            />
+          ) : (
+            <PostComposer onPostCreated={handlePostCreated} />
+          )}
 
           {activeTag && (
             <div style={{ marginBottom: "16px", padding: "12px 16px", backgroundColor: "var(--surface-secondary)", borderRadius: "var(--radius-card)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -205,6 +233,7 @@ export default function Home() {
           ) : (
             posts.map((post) => (
               <PostCard
+                onEdit={handleStartEdit}
                 key={post._id}
                 post={post}
                 onPostDeleted={handlePostDeleted}

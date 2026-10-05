@@ -8,6 +8,7 @@ import {
   Copy,
   Check,
   MoreHorizontal,
+  Pencil,
   Trash2,
   Send,
 } from "lucide-react";
@@ -23,6 +24,7 @@ export default function PostCard({
   post,
   onPostDeleted,
   onTagClick,
+  onEdit,
 }) {
   const { user } = useAuth();
   const [likes, setLikes] = useState(post?.likes || []);
@@ -211,6 +213,13 @@ export default function PostCard({
             }
             align="right"
           >
+            {onEdit && (
+              <button type="button" onClick={() => onEdit(post)} className="dropdown-item">
+                <Pencil size={14} />
+                <span>Edit post</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleDeletePost}

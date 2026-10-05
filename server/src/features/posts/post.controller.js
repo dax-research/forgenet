@@ -24,6 +24,15 @@ const parseJsonField = (field, fallback = []) => {
     return field;
 };
 
+/** Best-effort mime type from an image URL, used for URL-created media. */
+const guessMimeType = (url = "") => {
+    const clean = String(url).split("?")[0].toLowerCase();
+    if (clean.endsWith(".png")) return "image/png";
+    if (clean.endsWith(".webp")) return "image/webp";
+    if (clean.endsWith(".gif")) return "image/gif";
+    return "image/jpeg";
+};
+
 // Create a post
 export const createPost = async (req, res) => {
     try {
@@ -49,19 +58,46 @@ export const createPost = async (req, res) => {
         images = parseJsonField(images, []);
         media = parseJsonField(media, []);
 
+        // Keep `media` in step with `images`. Posts can be created from image
+        // URLs as well as uploads, and the gallery renders from whichever is
+        // present, so both must describe the same set.
+        const mediaByUrl = new Map(
+            (Array.isArray(media) ? media : []).map((m) => [m?.url, m]).filter(([url]) => url)
+        );
+        media = (Array.isArray(images) ? images : [])
+            .map((url) => {
+                const existing = mediaByUrl.get(url);
+                if (existing) return existing;
+                return {
+                    type: "image",
+                    url,
+                    mimeType: guessMimeType(url),
+                    size: 0,
+                    altText: ""
+                };
+            });
+
         if (req.files && req.files.length > 0) {
             const uploadedMedia = await uploadMediaFiles(req.files);
             for (const item of uploadedMedia) {
+                const absolute = `${req.protocol}://${req.get("host")}${item.url}`;
                 media.push({
                     type: "image",
-                    url: item.url,
+                    url: absolute,
                     filename: item.filename,
                     mimeType: item.mimeType,
                     size: item.size,
                     altText: ""
                 });
-                images.push(item.url);
+                images.push(absolute);
             }
+        }
+
+        if (images.length > 20) {
+            return res.status(400).json({
+                success: false,
+                message: "A post can have at most 20 images."
+            });
         }
 
         const post = await Post.create({
@@ -155,7 +191,7 @@ export const updatePost = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid post ID" });
         }
 
-        let { content, images, media, codeBlocks, tags } = req.body;
+        let { content, images, media, codeBlocks, tags } = req.body ?? {};
 
         if (content !== undefined) {
             content = String(content).trim();
@@ -191,10 +227,38 @@ export const updatePost = async (req, res) => {
 
         const updates = {};
         if (content !== undefined) updates.content = content;
-        if (images !== undefined) updates.images = parseJsonField(images, post.images);
-        if (media !== undefined) updates.media = parseJsonField(media, post.media);
         if (codeBlocks !== undefined) updates.codeBlocks = parseJsonField(codeBlocks, post.codeBlocks);
         if (tags !== undefined) updates.tags = parseJsonField(tags, post.tags);
+
+        if (images !== undefined) {
+            // When editing with uploads, the client sends the images it wants to
+            // KEEP as a JSON string, and any new files arrive on req.files.
+            let kept = parseJsonField(images, post.images);
+            if (!Array.isArray(kept)) kept = post.images;
+            kept = kept.map((entry) => (typeof entry === "string" ? entry : entry?.url)).filter(Boolean);
+
+            if (req.files && req.files.length > 0) {
+                const uploadedMedia = await uploadMediaFiles(req.files);
+                for (const item of uploadedMedia) {
+                    kept.push(`${req.protocol}://${req.get("host")}${item.url}`);
+                }
+                if (kept.length > 20) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "A post can have at most 20 images."
+                    });
+                }
+            }
+
+            updates.images = kept;
+            updates.media = kept.map((url, index) => ({
+                type: "image",
+                url,
+                mimeType: "image/jpeg",
+                size: 0,
+                altText: post.media?.[index]?.altText || ""
+            }));
+        }
 
         Object.assign(post, updates);
         await post.save();

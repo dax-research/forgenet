@@ -11,6 +11,25 @@ import SearchInput from "../components/SearchInput";
 import Skeleton from "../components/Skeleton";
 import EmptyState from "../components/EmptyState";
 import Card from "../components/Card";
+import SafeImage from "../components/SafeImage";
+import { AlertCircle, Pencil, Trash2 } from "lucide-react";
+
+const emptyForm = () => ({
+  title: "",
+  description: "",
+  technologies: "",
+  githubUrl: "",
+  liveUrl: "",
+  imageUrl: "",
+  status: "in-progress",
+});
+
+/** Normalises an http(s) URL, returning undefined when unusable. */
+const normaliseImageUrl = (value) => {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return undefined;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : undefined;
+};
 
 export default function Projects() {
   const { user } = useAuth();
@@ -19,17 +38,18 @@ export default function Projects() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeStatus, setActiveStatus] = useState("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editData, setEditData] = useState(emptyForm());
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState("");
 
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "",
-    technologies: "",
-    githubUrl: "",
-    liveUrl: "",
-    status: "in-progress",
-  });
+  const [formData, setFormData] = useState(emptyForm());
 
   const loadProjects = async () => {
     try {
@@ -68,6 +88,7 @@ export default function Projects() {
           : [],
         githubUrl: formData.githubUrl.trim() || undefined,
         liveUrl: formData.liveUrl.trim() || undefined,
+        images: normaliseImageUrl(formData.imageUrl) ? [normaliseImageUrl(formData.imageUrl)] : [],
         status: formData.status,
       };
 
@@ -79,14 +100,7 @@ export default function Projects() {
         };
         setProjects((prev) => [created, ...prev]);
         setIsModalOpen(false);
-        setFormData({
-          title: "",
-          description: "",
-          technologies: "",
-          githubUrl: "",
-          liveUrl: "",
-          status: "in-progress",
-        });
+        setFormData(emptyForm());
       }
     } catch (err) {
       setFormError(err.response?.data?.message || err.message || "Failed to create project.");
@@ -95,14 +109,75 @@ export default function Projects() {
     }
   };
 
-  const handleDeleteProject = async (id) => {
-    if (window.confirm("Are you sure you want to delete this project?")) {
-      try {
-        await projectsService.deleteProject(id);
-        setProjects((prev) => prev.filter((p) => p._id !== id));
-      } catch (err) {
-        console.warn("Delete project error:", err.message);
+  const handleOpenEdit = (project) => {
+    setEditingProject(project);
+    setEditData({
+      title: project?.title || "",
+      description: project?.description || "",
+      technologies: Array.isArray(project?.technologies) ? project.technologies.join(", ") : "",
+      githubUrl: project?.githubUrl || "",
+      liveUrl: project?.liveUrl || "",
+      imageUrl: project?.images?.[0] || "",
+      status: project?.status || "in-progress",
+    });
+    setEditError("");
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editingProject?._id) return;
+    if (!editData.title.trim() || !editData.description.trim()) {
+      setEditError("Title and description are required.");
+      return;
+    }
+
+    try {
+      setEditing(true);
+      setEditError("");
+      const res = await projectsService.updateProject(editingProject._id, {
+        title: editData.title.trim(),
+        description: editData.description.trim(),
+        technologies: editData.technologies
+          ? editData.technologies.split(",").map((t) => t.trim()).filter(Boolean)
+          : [],
+        githubUrl: editData.githubUrl.trim(),
+        liveUrl: editData.liveUrl.trim(),
+        images: normaliseImageUrl(editData.imageUrl) ? [normaliseImageUrl(editData.imageUrl)] : [],
+        status: editData.status,
+      });
+      if (res.success && res.data?.project) {
+        setProjects((prev) =>
+          prev.map((p) => (p._id === editingProject._id ? { ...p, ...res.data.project } : p))
+        );
+        setIsEditModalOpen(false);
       }
+    } catch (err) {
+      setEditError(err.response?.data?.message || err.message || "Could not save the project.");
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  const handleOpenDelete = (project) => {
+    setDeleteTarget(project);
+    setDeleteError("");
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget?._id) return;
+    try {
+      setDeleting(true);
+      setDeleteError("");
+      await projectsService.deleteProject(deleteTarget._id);
+      setProjects((prev) => prev.filter((p) => p._id !== deleteTarget._id));
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(
+        err.response?.data?.message || err.message || "Could not delete the project."
+      );
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -226,7 +301,8 @@ export default function Projects() {
             <ProjectCard
               key={proj._id}
               project={proj}
-              onDelete={handleDeleteProject}
+              onDelete={handleOpenDelete}
+            onEdit={handleOpenEdit}
             />
           ))}
         </div>
@@ -291,6 +367,36 @@ export default function Projects() {
           />
 
           <div className="form-group">
+            <label className="form-label">Cover Image URL</label>
+            <input
+              type="url"
+              className="input"
+              value={formData.imageUrl}
+              onChange={(e) => setFormData((prev) => ({ ...prev, imageUrl: e.target.value }))}
+              placeholder="https://.../cover.png"
+            />
+            <span className="form-helper">Paste a direct link to an image.</span>
+            {formData.imageUrl && (
+              <div
+                style={{
+                  marginTop: "8px",
+                  height: "110px",
+                  borderRadius: "var(--radius-btn)",
+                  overflow: "hidden",
+                  border: "1px solid var(--border)",
+                  backgroundColor: "var(--surface-secondary)",
+                }}
+              >
+                <SafeImage
+                  src={formData.imageUrl}
+                  alt="Cover preview"
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="form-group">
             <label className="form-label">Development Status</label>
             <select
               value={formData.status}
@@ -319,6 +425,164 @@ export default function Projects() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Edit Project Modal */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => !editing && setIsEditModalOpen(false)}
+        title="Edit Project"
+        maxWidth="520px"
+      >
+        <form onSubmit={handleSaveEdit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {editError && (
+            <p style={{ color: "var(--danger)", fontSize: "12px" }}>{editError}</p>
+          )}
+
+          <Input
+            label="Project Title"
+            name="edit-title"
+            value={editData.title}
+            onChange={(e) => setEditData((prev) => ({ ...prev, title: e.target.value }))}
+            required
+            disabled={editing}
+          />
+
+          <Input
+            label="Description"
+            name="edit-description"
+            type="textarea"
+            rows={3}
+            value={editData.description}
+            onChange={(e) => setEditData((prev) => ({ ...prev, description: e.target.value }))}
+            required
+            disabled={editing}
+          />
+
+          <Input
+            label="Technologies (comma separated)"
+            name="edit-technologies"
+            value={editData.technologies}
+            onChange={(e) => setEditData((prev) => ({ ...prev, technologies: e.target.value }))}
+            placeholder="React, TypeScript, Node.js"
+            disabled={editing}
+          />
+
+          <Input
+            label="GitHub Repository URL"
+            name="edit-githubUrl"
+            type="url"
+            value={editData.githubUrl}
+            onChange={(e) => setEditData((prev) => ({ ...prev, githubUrl: e.target.value }))}
+            placeholder="https://github.com/username/project"
+            disabled={editing}
+          />
+
+          <Input
+            label="Live Demo URL"
+            name="edit-liveUrl"
+            type="url"
+            value={editData.liveUrl}
+            onChange={(e) => setEditData((prev) => ({ ...prev, liveUrl: e.target.value }))}
+            placeholder="https://myproject.dev"
+            disabled={editing}
+          />
+
+          <div className="form-group">
+            <label className="form-label">Cover Image URL</label>
+            <input
+              type="url"
+              className="input"
+              value={editData.imageUrl}
+              onChange={(e) => setEditData((prev) => ({ ...prev, imageUrl: e.target.value }))}
+              placeholder="https://.../cover.png"
+              disabled={editing}
+            />
+            <span className="form-helper">Leave empty to remove the cover image.</span>
+            {editData.imageUrl && (
+              <div
+                style={{
+                  marginTop: "8px",
+                  height: "110px",
+                  borderRadius: "var(--radius-btn)",
+                  overflow: "hidden",
+                  border: "1px solid var(--border)",
+                  backgroundColor: "var(--surface-secondary)",
+                }}
+              >
+                <SafeImage
+                  src={editData.imageUrl}
+                  alt="Cover preview"
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Development Status</label>
+            <select
+              value={editData.status}
+              onChange={(e) => setEditData((prev) => ({ ...prev, status: e.target.value }))}
+              className="select"
+              disabled={editing}
+            >
+              <option value="in-progress">In Progress</option>
+              <option value="completed">Completed</option>
+              <option value="planned">Planned</option>
+            </select>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}>
+            <Button variant="secondary" onClick={() => setIsEditModalOpen(false)} disabled={editing}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" loading={editing}>
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Project Modal */}
+      <Modal
+        isOpen={!!deleteTarget}
+        onClose={() => !deleting && setDeleteTarget(null)}
+        title="Delete Project"
+        maxWidth="420px"
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {deleteError && (
+            <p style={{ color: "var(--danger)", fontSize: "12px" }}>{deleteError}</p>
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              padding: "12px",
+              borderRadius: "var(--radius-btn)",
+              backgroundColor: "var(--danger-bg)",
+              border: "1px solid var(--danger-border)",
+              fontSize: "13px",
+              lineHeight: "1.5",
+            }}
+          >
+            <AlertCircle size={16} style={{ color: "var(--danger)", flexShrink: 0, marginTop: "1px" }} />
+            <span>
+              This permanently deletes <strong>{deleteTarget?.title}</strong>. This cannot be undone.
+            </span>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+            <Button variant="secondary" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="danger" icon={Trash2} loading={deleting} onClick={handleConfirmDelete}>
+              Delete Project
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

@@ -40,4 +40,28 @@ export const chatService = {
     const res = await api.post(`/conversations/${conversationId}/messages`, { content });
     return res.data;
   },
+
+  /**
+   * Schedules a message for later. `scheduledAt` must be an ISO string in UTC —
+   * the caller converts from the user's timezone first.
+   */
+  async scheduleMessage(conversationId, content, scheduledAt) {
+    const res = await api.post("/messages/schedule", { conversationId, content, scheduledAt });
+    return res.data;
+  },
+
+  async getScheduledMessages(conversationId) {
+    const res = await api.get(`/messages/conversation/${conversationId}/scheduled`);
+    return res.data;
+  },
+
+  async cancelScheduledMessage(messageId) {
+    const res = await api.delete(`/messages/${messageId}/schedule`);
+    return res.data;
+  },
+
+  async updateScheduledMessage(messageId, payload) {
+    const res = await api.patch(`/messages/${messageId}/schedule`, payload);
+    return res.data;
+  },
 };

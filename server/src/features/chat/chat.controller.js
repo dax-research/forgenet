@@ -37,6 +37,7 @@ export const notifyMessageSent = async (message, senderId) => {
     conversation: { $in: conversations.map((c) => c._id) },
     sender: { $ne: recipient },
     readAt: null,
+    status: { $in: ["sent", null] },
   });
   emitToUser(recipient, "messages:unread_count", { unreadCount, conversationId: message.conversation.toString() });
 };
@@ -58,8 +59,17 @@ export const getConversations = async (req, res) => {
     // Per-conversation unread counts, derived from Message.readAt.
     const unreadRows = conversations.length
         ? await Message.aggregate([
-              { $match: { conversation: { $in: conversations.map((c) => c._id) }, sender: { $ne: req.user._id }, readAt: null } },
-              { $group: { _id: "$conversation", count: { $sum: 1 } } }
+              {
+                  $match: {
+                      conversation: { $in: conversations.map((c) => c._id) },
+                      sender: { $ne: req.user._id },
+                      readAt: null,
+                      // Missing status means a pre-scheduling message, which
+                      // counts as delivered.
+                      status: { $in: ["sent", null] },
+                  },
+              },
+              { $group: { _id: "$conversation", count: { $sum: 1 } } },
           ])
         : [];
 
@@ -136,7 +146,13 @@ export const getMessages = async (req, res) => {
     const { limit, skip } = parsePagination(req, 20, 100);
     const filter = { conversation: conversation._id };
     const total = await Message.countDocuments(filter);
-    const messages = await Message.find(filter).populate("sender", "name profileImage").sort({ createdAt: 1 }).skip(skip).limit(limit);
+    // Only delivered messages; pending scheduled ones are private to the sender
+    // until the scheduler sends them.
+    const messages = await Message.find({ ...filter, status: { $in: ["sent", null] } })
+        .populate("sender", "name profileImage")
+        .sort({ createdAt: 1 })
+        .skip(skip)
+        .limit(limit);
     return res.json({ success: true, data: { messages, total, limit, skip } });
 };
 
@@ -144,20 +160,41 @@ export const createMessage = async (req, res) => {
     const conversation = await Conversation.findById(req.params.conversationId);
     if (!conversation || !member(conversation, req.user._id)) return res.status(404).json({ success: false, message: "Conversation not found" });
     if (!req.body.content?.trim()) return res.status(400).json({ success: false, message: "Message content is required" });
-    const message = await Message.create({ conversation: conversation._id, sender: req.user._id, content: req.body.content });
+    const message = await Message.create({
+            conversation: conversation._id,
+            sender: req.user._id,
+            content: req.body.content,
+            // Instant send: delivered immediately, never scheduled.
+            status: "sent",
+            sentAt: new Date()
+        });
         await Conversation.findByIdAndUpdate(conversation._id, { updatedAt: new Date() });
         await notifyMessageSent(message, req.user._id);
         return res.status(201).json({ success: true, data: { message } });
     };
 
 export const updateMessage = async (req, res) => {
-    const message = await Message.findOneAndUpdate({ _id: req.params.id, sender: req.user._id }, { content: req.body?.content, readAt: req.body?.readAt }, { new: true, runValidators: true });
+    const message = await Message.findOneAndUpdate(
+        // status "sent" or absent (pre-scheduling message)
+        { _id: req.params.id, sender: req.user._id, status: { $in: ["sent", null] } },
+        { content: req.body?.content, readAt: req.body?.readAt },
+        { new: true, runValidators: true }
+    );
     if (!message) return res.status(404).json({ success: false, message: "Message not found" });
     return res.json({ success: true, data: { message } });
 };
 
 export const deleteMessage = async (req, res) => {
-    const message = await Message.findOneAndDelete({ _id: req.params.id, sender: req.user._id });
+    // A pending scheduled message must be cancelled, not hard-deleted, so the
+    // recipient can never receive it later.
+    const message = await Message.findOne({ _id: req.params.id, sender: req.user._id });
     if (!message) return res.status(404).json({ success: false, message: "Message not found" });
+    if (message.status === "scheduled") {
+        return res.status(409).json({
+            success: false,
+            message: "Cancel the scheduled message instead of deleting it"
+        });
+    }
+    await message.deleteOne();
     return res.json({ success: true, message: "Message deleted successfully" });
 };

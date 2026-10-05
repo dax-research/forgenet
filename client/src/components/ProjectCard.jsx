@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import {
   FolderGit2,
   ExternalLink,
+  Pencil,
   Trash2,
 } from "lucide-react";
 import GithubIcon from "./GithubIcon";
@@ -14,6 +15,7 @@ import SafeImage from "./SafeImage";
 export default function ProjectCard({
   project,
   onDelete,
+  onEdit,
 }) {
   const { user } = useAuth();
   const owner = project?.owner || {};
@@ -161,10 +163,21 @@ export default function ProjectCard({
             </a>
           )}
 
+          {isOwner && onEdit && (
+            <button
+              type="button"
+              onClick={() => onEdit(project)}
+              style={{ color: "var(--text-muted)", display: "flex", alignItems: "center" }}
+              title="Edit project"
+            >
+              <Pencil size={14} />
+            </button>
+          )}
+
           {isOwner && onDelete && (
             <button
               type="button"
-              onClick={() => onDelete(project._id)}
+              onClick={() => onDelete(project)}
               style={{ color: "var(--text-muted)", display: "flex", alignItems: "center" }}
               title="Delete project"
             >

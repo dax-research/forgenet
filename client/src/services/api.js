@@ -2,9 +2,10 @@ import axios from "axios";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1",
-  headers: {
-    "Content-Type": "application/json",
-  },
+  // No default Content-Type here on purpose. Setting application/json globally
+  // forced that header onto FormData uploads too, so the multipart boundary was
+  // never sent and multer never received the file. Letting axios set the
+  // Content-Type per request is correct for both JSON and multipart.
 });
 
 api.interceptors.request.use(
@@ -13,6 +14,17 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // JSON bodies get an explicit type; FormData must be left alone so the
+    // browser can attach the multipart boundary.
+    const isFormData = typeof FormData !== "undefined" && config.data instanceof FormData;
+    if (!isFormData && config.data !== undefined && !config.headers["Content-Type"]) {
+      config.headers["Content-Type"] = "application/json";
+    }
+    if (isFormData) {
+      delete config.headers["Content-Type"];
+    }
+
     return config;
   },
   (error) => Promise.reject(error)

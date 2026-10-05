@@ -250,11 +250,15 @@ io.on("connection", (socket) => {
         if (error) {
           return emitError(socket, ack, error);
         }
-        // Persist message using existing Message model
+        // Persist message using existing Message model. Instant sends are
+        // always "sent"; scheduling goes through the REST endpoint so the
+        // server-side validation rules cannot be bypassed.
         const message = await Message.create({
           conversation: conversation._id,
           sender: socket.user._id,
           content: content.trim(),
+          status: "sent",
+          sentAt: new Date(),
         });
         // Keep conversation ordering consistent with REST API
         await Conversation.findByIdAndUpdate(conversation._id, {
@@ -288,7 +292,7 @@ io.on("connection", (socket) => {
           return emitError(socket, ack, error);
         }
         await Message.updateMany(
-          { conversation: conversation._id, sender: { $ne: socket.user._id }, readAt: null },
+          { conversation: conversation._id, sender: { $ne: socket.user._id }, readAt: null, status: { $in: ["sent", null] } },
           { $set: { readAt: new Date() } }
         );
         const conversations = await Conversation.find({ participants: socket.user._id }).select("_id");
@@ -296,6 +300,7 @@ io.on("connection", (socket) => {
           conversation: { $in: conversations.map((c) => c._id) },
           sender: { $ne: socket.user._id },
           readAt: null,
+          status: "sent",
         });
         emitToUserSockets(socket.user._id, "messages:unread_count", { unreadCount });
         if (ack) return ack({ success: true, data: { unreadCount } });

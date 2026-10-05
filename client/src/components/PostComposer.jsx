@@ -23,17 +23,38 @@ const LANGUAGES = [
   "json",
 ];
 
-export default function PostComposer({ onPostCreated }) {
+const normaliseImageUrl = (value) => {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return undefined;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : undefined;
+};
+
+/**
+ * Create or edit composer.
+ *
+ * `post` switches it into edit mode: existing content, tags and images are
+ * loaded, and saving calls onPostUpdated instead of onPostCreated.
+ */
+export default function PostComposer({
+  onPostCreated,
+  onPostUpdated,
+  post = null,
+  onCancelEdit = null,
+}) {
   const { user } = useAuth();
   const fileInputRef = useRef(null);
+  const isEditing = !!post;
 
-  const [content, setContent] = useState("");
+  const [content, setContent] = useState(post?.content || "");
+  const [imageUrlsInput, setImageUrlsInput] = useState((post?.images || []).join("\n"));
   const [showCode, setShowCode] = useState(false);
   const [codeLanguage, setCodeLanguage] = useState("javascript");
   const [code, setCode] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]); // Array of File objects
   const [previews, setPreviews] = useState([]); // Array of { file, url, name, size }
-  const [tagsInput, setTagsInput] = useState("");
+  const [tagsInput, setTagsInput] = useState(
+    Array.isArray(post?.tags) ? post.tags.map((t) => `#${t}`).join(" ") : ""
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -99,15 +120,28 @@ export default function PostComposer({ onPostCreated }) {
     setPreviews((prev) => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
+  // Images can come from pasted URLs as well as uploaded files.
+  const urlImages = imageUrlsInput
+    .split(/[\n,]+/)
+    .map(normaliseImageUrl)
+    .filter(Boolean);
+
+  const totalImages = urlImages.length + selectedFiles.length;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!content.trim() && !code.trim() && selectedFiles.length === 0) {
+    if (!content.trim() && !code.trim() && selectedFiles.length === 0 && urlImages.length === 0) {
       setError("Please write something, share code, or attach an image.");
       return;
     }
 
     if (isOverLimit) {
       setError(`Post content cannot exceed ${MAX_POST_LENGTH} characters.`);
+      return;
+    }
+
+    if (totalImages > MAX_IMAGE_COUNT) {
+      setError(`You can attach at most ${MAX_IMAGE_COUNT} images.`);
       return;
     }
 
@@ -133,34 +167,45 @@ export default function PostComposer({ onPostCreated }) {
         formData.append("content", content.trim());
         formData.append("codeBlocks", JSON.stringify(codeBlocks));
         formData.append("tags", JSON.stringify(tags));
+        // Preserve existing/URL images alongside the newly uploaded files.
+        formData.append("images", JSON.stringify(urlImages));
 
         selectedFiles.forEach((file) => {
           formData.append("images", file);
         });
 
-        await onPostCreated(formData);
+        await (isEditing ? onPostUpdated?.(formData) : onPostCreated(formData));
       } else {
         // Text/code-only post as JSON
-        await onPostCreated({
+        const payload = {
           content: content.trim(),
           codeBlocks,
           tags,
-          images: [],
-        });
+          images: urlImages,
+        };
+        await (isEditing ? onPostUpdated?.(payload) : onPostCreated(payload));
       }
 
       // Cleanup previews
       previews.forEach((p) => URL.revokeObjectURL(p.url));
 
-      // Reset state
-      setContent("");
-      setCode("");
-      setShowCode(false);
-      setSelectedFiles([]);
-      setPreviews([]);
-      setTagsInput("");
+      if (!isEditing) {
+        // Reset state
+        setContent("");
+        setCode("");
+        setShowCode(false);
+        setSelectedFiles([]);
+        setPreviews([]);
+        setTagsInput("");
+        setImageUrlsInput("");
+      }
+      if (onCancelEdit) onCancelEdit();
     } catch (err) {
-      setError(err.response?.data?.message || err.message || "Failed to create post.");
+      setError(
+        err.response?.data?.message ||
+          err.message ||
+          (isEditing ? "Failed to update post." : "Failed to create post.")
+      );
     } finally {
       setLoading(false);
     }
@@ -368,6 +413,41 @@ export default function PostComposer({ onPostCreated }) {
           </div>
         </div>
 
+        {/* Image URLs (one per line) */}
+        <div style={{ marginTop: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <ImageIcon size={14} style={{ color: "var(--text-muted)" }} />
+            <input
+              type="text"
+              placeholder={
+                isEditing
+                  ? "Image URLs, one per line (clear to remove)"
+                  : "Or paste image URLs, one per line"
+              }
+              value={imageUrlsInput}
+              onChange={(e) => setImageUrlsInput(e.target.value)}
+              style={{
+                border: "none",
+                background: "transparent",
+                outline: "none",
+                fontSize: "12px",
+                color: "var(--text-secondary)",
+                width: "100%",
+              }}
+            />
+          </div>
+          {urlImages.length > 0 && (
+            <p style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+              {urlImages.length} image URL{urlImages.length === 1 ? "" : "s"} will be attached.
+            </p>
+          )}
+          {totalImages > 20 && (
+            <p style={{ fontSize: "11px", color: "var(--danger)", marginTop: "4px" }}>
+              You can attach at most 20 images. You currently have {totalImages}.
+            </p>
+          )}
+        </div>
+
         {/* Error message */}
         {error && (
           <div
@@ -450,6 +530,18 @@ export default function PostComposer({ onPostCreated }) {
               {charCount} / {MAX_POST_LENGTH}
             </span>
 
+            {isEditing && onCancelEdit && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onCancelEdit}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+            )}
+
             <Button
               type="submit"
               variant="primary"
@@ -459,10 +551,11 @@ export default function PostComposer({ onPostCreated }) {
               disabled={
                 loading ||
                 isOverLimit ||
-                (!content.trim() && !code.trim() && selectedFiles.length === 0)
+                totalImages > MAX_IMAGE_COUNT ||
+                (!content.trim() && !code.trim() && selectedFiles.length === 0 && urlImages.length === 0)
               }
             >
-              Publish
+              {isEditing ? "Save Changes" : "Publish"}
             </Button>
           </div>
         </div>

@@ -86,7 +86,7 @@ export const getProject = async (req, res) => {
 // Update project
 export const updateProject = async (req, res) => {
     try {
-        const { title, description, images, technologies, githubUrl, liveUrl, status } = req.body;
+        const { title, description, images, technologies, githubUrl, liveUrl, status } = req.body ?? {};
         const project = await Project.findById(req.params.id);
 
         if (!project) {
@@ -103,7 +103,17 @@ export const updateProject = async (req, res) => {
             });
         }
 
-        Object.assign(project, { title, description, images, technologies, githubUrl, liveUrl, status });
+        // Only overwrite fields that were actually sent, so a partial update
+        // (e.g. changing just the cover image) does not blank the rest.
+        Object.assign(project, {
+            ...(title !== undefined && { title }),
+            ...(description !== undefined && { description }),
+            ...(images !== undefined && { images }),
+            ...(technologies !== undefined && { technologies }),
+            ...(githubUrl !== undefined && { githubUrl }),
+            ...(liveUrl !== undefined && { liveUrl }),
+            ...(status !== undefined && { status }),
+        });
         await project.save();
 
         return res.status(200).json({

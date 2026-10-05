@@ -26,8 +26,10 @@ postRouter.delete("/:id/save", authenticate, unsavePost);
 postRouter.post("/:id/like", authenticate, likePost);
 postRouter.delete("/:id/like", authenticate, unlikePost);
 postRouter.get("/:id", getPost);
-postRouter.patch("/:id", authenticate, updatePost);
-postRouter.put("/:id", authenticate, updatePost);
+// Editing a post can add or remove images, so the same upload middleware as
+// creation is applied here.
+postRouter.patch("/:id", authenticate, uploadPostImages, updatePost);
+postRouter.put("/:id", authenticate, uploadPostImages, updatePost);
 postRouter.delete("/:id", authenticate, deletePost);
 
 export default postRouter;

@@ -7,6 +7,7 @@ import {
   disconnectDatabase,
 } from "./config/database.js";
 import { env } from "./config/env.js";
+import { startScheduler, stopScheduler } from "./services/messageScheduler.service.js";
 
 const httpServer = createServer(app);
 attachSocketServer(httpServer);
@@ -20,6 +21,10 @@ const startServer = async () => {
         `ForgeNet API running at http://localhost:${env.port}`
       );
     });
+
+    // Delivers due scheduled messages. Started once the DB is connected so a
+    // restart resumes any messages that are still pending.
+    startScheduler();
   } catch (error) {
     console.error("ForgeNet server failed to start:", error.message);
     process.exit(1);
@@ -50,6 +55,8 @@ const shutdown = (signal) => {
 
   isShuttingDown = true;
   console.log(`${signal} received. Closing the server...`);
+
+  stopScheduler();
 
   httpServer.close(async (serverError) => {
     let exitCode = serverError ? 1 : 0;
